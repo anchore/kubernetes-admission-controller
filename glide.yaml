@@ -1,0 +1,23 @@
+package: github.com/anchore/kubernetes-admission-controller
+import:
+- package: k8s.io/code-generator
+  version: kubernetes-1.10.0
+- package: k8s.io/client-go
+  version: kubernetes-1.10.0
+- package: k8s.io/apimachinery
+  version: kubernetes-1.10.0
+- package: k8s.io/apiserver
+  version: kubernetes-1.10.0
+- package: k8s.io/api
+  version: kubernetes-1.10.0
+- package: github.com/openshift/generic-admission-server
+  version: ^1.10.0
+  subpackages:
+  - pkg/cmd
+- package: github.com/hashicorp/golang-lru
+  version: ^0.5.0
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: golang.org/x/oauth2
+
