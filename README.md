@@ -35,3 +35,25 @@ help track their provenance.
 
 `docker build -t tag .` Should be all that is necessary to build.
  
+
+## Configuration
+
+The server itself looks for a config file in either `/config.json` or wherever `CONFIG_FILE_PATH` environment variable indicates.
+
+That file should be a json file. Example:
+```
+{
+  "validator": {
+    "enabled": true,
+    "analyzeIfNotPresent": false,
+    "analyzeTimeout": 0,
+    "validateStatus": true
+  },
+  "client": {
+    "endpoint": "http://localhost:8228",
+    "username": "admin",
+    "password": "foobar",
+    "policybundle": "test123"
+  }
+}
+```
