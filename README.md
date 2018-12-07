@@ -35,19 +35,41 @@ help track their provenance.
 
 `docker build -t tag .` Should be all that is necessary to build.
  
+## Environment Variables
 
-## Configuration
+_CONFIG_FILE_PATH_ - Path to the config file. The server will use _/config.json_ unless this is set.
+_ANCHORE_USERNAME_ - Username for the anchore http client, overrides the config file value
+_ANCHORE_PASSWORD_ - Password for the anchore http client, overrides the config file value
 
-The server itself looks for a config file in either `/config.json` or wherever `CONFIG_FILE_PATH` environment variable indicates.
+## Configuration File
 
-That file should be a json file. Example:
+The server loads the configuration from the _CONFIG_FILE_PATH_ location (defaults to _/config.json_)
+
+
+
+type AnchoreClientConfiguration struct {
+	Endpoint            string
+	Username            string
+	Password            string
+	PolicyBundle        string
+	//VerifyCert          bool
+}
+
+type ValidatorConfiguration struct {
+	Enabled             bool
+	RequireImageAnalyzed bool
+	RequirePassPolicy   bool
+	RequestAnalysis     bool
+}
+
+The configuration is a json file. Example:
 ```
 {
   "validator": {
     "enabled": true,
-    "analyzeIfNotPresent": false,
-    "analyzeTimeout": 0,
-    "validateStatus": true
+    "requireimageanalyzed": false,
+    "requirepasspolicy": true,
+    "requestanalysis": true
   },
   "client": {
     "endpoint": "http://localhost:8228",
@@ -57,3 +79,13 @@ That file should be a json file. Example:
   }
 }
 ```
+
+
+### Validator Config Details
+* _requirepasspolicy_ - boolean, overrides the other values. If true, all images in the spec must already be analyzed by the Anchore Engine and must pass policy evaluation of the configured policy. Which policy to use is specified in config by _policybundle_.
+* _requireanalyzed_ - boolean. overrides _requestanalysis_ and if set admission will only occur if all images in the spec have been analyzed by Anchore Engine.
+* _requestanalysis_ - boolean. If set and the above two conditions do not hold (either set to false or fail in evaluation) then the controller will request an image be analyzed by the Engine, but not block for completion.
+
+### Client Config
+* _policybundle_ - String. The policy bundle id to evaluate. If unset, the evaluation will use the user's active bundle in Anchore Engine, which is configured in the Engine, not in the admission controller.
+
