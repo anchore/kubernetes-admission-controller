@@ -15,7 +15,7 @@ import (
 )
 
 func TestConfig(t *testing.T) {
-	c, err := loadConfig("conf.json")
+	c, err := loadConfig("conf.json", "someuser", "somepassword")
 	if err == nil {
 		t.Log("Got config: ", c)
 	} else {
@@ -24,7 +24,7 @@ func TestConfig(t *testing.T) {
 	}
 }
 
-func TestValidate(t *testing.T) {
+func TestValidatePolicyOk(t *testing.T) {
 	//Setup test service
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/images" {
@@ -38,11 +38,11 @@ func TestValidate(t *testing.T) {
 		} else {
 			switch r.URL.Query().Get("fulltag") {
 			case "docker.io/alpine":
-				fmt.Fprintln(w, GoodFailResponse)
+				fmt.Fprintln(w, ImageLookup)
 			case "alpine":
-				fmt.Fprintln(w, GoodFailResponse)
+				fmt.Fprintln(w, ImageLookup)
 			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, GoodFailResponse)
+				fmt.Fprintln(w, ImageLookup)
 			default:
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, ImageLookupError)
@@ -52,18 +52,9 @@ func TestValidate(t *testing.T) {
 
 	defer ts.Close()
 
+	adm := admissionHook{}
 
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, 100, true},
-		MutatorConfiguration{true, "policy-evaluation-status.anchore.com"},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", false},
-	}
-
-	log.Info(fmt.Sprintf("URL: %s", ts.URL))
-
-	InitializeClient(testConf)
-
-
+	// Valid image, passes policy
 	tpod := &v1.Pod{
 		Spec: v1.PodSpec{Containers: []v1.Container{
 			{
@@ -82,6 +73,14 @@ func TestValidate(t *testing.T) {
 		t.Error("Failed marshalling")
 	}
 
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, true, true, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
 	admSpec := v1beta1.AdmissionRequest {
 		UID: "abc123",
 		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
@@ -93,14 +92,484 @@ func TestValidate(t *testing.T) {
 		Object: runtime.RawExtension{Raw: marshalledPod},
 	}
 
-	adm := admissionHook{}
 	resp := adm.Validate(&admSpec)
-	obj, err := json.Marshal(resp)
 
+	obj, err := json.Marshal(resp)
 	if(err == nil) {
 		fmt.Println(string(obj[:]))
 	}
 
+	assert.True(t, resp.Allowed)
+}
+
+func TestValidatePolicyFail(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodFailResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "alpine",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, true, true, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", "mybundle"},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, !resp.Allowed)
+}
+
+func TestValidatePolicyNotFound(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "ubuntu",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, true, true, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, !resp.Allowed)
+}
+
+func TestValidateAnalyzedOk(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "alpine",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, true, false, false},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, resp.Allowed)
+}
+
+
+func TestValidateAnalyzedFail(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "ubuntu",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, true, false, false},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, !resp.Allowed)
+}
+
+
+func TestValidatePassiveFound(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "alpine",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, false, false, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, resp.Allowed)
+}
+
+func TestValidatePassiveNotFound(t *testing.T) {
+	//Setup test service
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "alpine":
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/alpine:latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+
+	defer ts.Close()
+
+	adm := admissionHook{}
+
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "ubuntu",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+
+	if (err != nil ) {
+		log.Error("Failed marshalling pod spec")
+		t.Error("Failed marshalling")
+	}
+
+	testConf := ControllerConfiguration{
+		ValidatorConfiguration{true, false, false, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+	}
+
+	InitializeClient(testConf)
+	config = testConf
+
+	admSpec := v1beta1.AdmissionRequest {
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name: "somename",
+		Namespace: "default",
+		Operation: "CREATE",
+		Object: runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	resp := adm.Validate(&admSpec)
+
+	obj, err := json.Marshal(resp)
+	if(err == nil) {
+		fmt.Println(string(obj[:]))
+	}
+
+	assert.True(t, resp.Allowed)
 }
 
 var GoodPassResponse = `
@@ -206,7 +675,7 @@ func TestLookupImage(t *testing.T) {
 		} else {
 			switch r.URL.Query().Get("fulltag") {
 			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, GoodFailResponse)
+				fmt.Fprintln(w, ImageLookup)
 			default:
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, ImageLookupError)
@@ -219,9 +688,8 @@ func TestLookupImage(t *testing.T) {
 	log.Info(fmt.Sprintf("URL: %s", ts.URL))
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, 100, true},
-		MutatorConfiguration{true, "policy-evaluation-status.anchore.com"},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", false},
+		ValidatorConfiguration{true, true, true, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
 	}
 
 	client, authCtx, err := initClient(testConf)
@@ -232,7 +700,7 @@ func TestLookupImage(t *testing.T) {
 
 	localOpts := make(map[string]interface{})
 
-	var calls = [][]string{{"docker.io/alpine", "analyzed"}, {"docker.io/alpine:3.8", "notfound"}}
+	var calls = [][]string{{"docker.io/alpine:latest", "analyzed"}, {"docker.io/alpine:3.8", "notfound"}}
 	var result string
 
 	for _, item := range calls {
@@ -242,7 +710,6 @@ func TestLookupImage(t *testing.T) {
 		if err != nil {
 			if item[1] == "notfound" {
 				log.Info("Expected error response from server: ", err)
-
 			} else {
 				log.Error(err)
 				assert.Fail(t, "Did not expect an error")
@@ -291,9 +758,8 @@ func TestCheckImage(t *testing.T) {
 	log.Info(fmt.Sprintf("URL: %s", ts.URL))
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, 100, true},
-		MutatorConfiguration{true, "policy-evaluation-status.anchore.com"},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", false},
+		ValidatorConfiguration{true, true, true, true},
+		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
 	}
 
 	client, authCtx, err := initClient(testConf)

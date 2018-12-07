@@ -1,13 +1,9 @@
 /*
 The main entry point for the Anchore Kubernetes Admission Controller
 
-This controller, based on the openshift generic admission server, supports both Validating and Mutating Webhooks, configurable via command options
+This controller, based on the openshift generic admission server), supports Validating Webhook requests
 
 Default behavior is ValidatingAdmissionWebhook-only mode
-
-If the PodSpec has an annotation "breakglass.anchore.com=true" then the image will be allowed regardless of status, thus it is responsibility of the
-system admin to ensure the ability of users to add that annotation is restricted as makes sense for that organization
-
 
  */
 
@@ -26,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	//"github.com/hashicorp/golang-lru"
 	"github.com/openshift/generic-admission-server/pkg/cmd"
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
 	"k8s.io/api/core/v1"
@@ -44,13 +39,6 @@ var config ControllerConfiguration
 var client *anchore.APIClient
 var authCtx context.Context
 
-var (
-	analysisTimestampAnnotation = "image-analysis.anchore.com/analyzed-timestamp"
-	analysisStatusAnnotation    = "image-analysis.anchore.com/analysis-state"
-	policyStatusAnnotation      = "policy-evaluation.anchore.com/evaluation-state"
-	policyIdAnnotation          = "policy-evaluation.anchore.com/evaluated-policy-id"
-)
-
 type admissionHook struct {
 	reservationClient dynamic.ResourceInterface
 	lock              sync.RWMutex
@@ -58,36 +46,25 @@ type admissionHook struct {
 }
 
 type ControllerConfiguration struct {
-//	Cache     CacheConfiguration
 	Validator ValidatorConfiguration
-	Mutator   MutatorConfiguration
+	// TODO: for adding mutating support
+	//Mutator   MutatorConfiguration
 	Client AnchoreClientConfiguration
-}
-
-type CacheConfiguration struct {
-	Enabled bool
-	Size    int
-	Ttl     int
 }
 
 type AnchoreClientConfiguration struct {
 	Endpoint            string
 	Username            string
 	Password            string
-	VerifyCert          bool
+	PolicyBundle        string
+	//VerifyCert          bool
 }
-
 
 type ValidatorConfiguration struct {
 	Enabled             bool
-	AnalyzeIfNotPresent bool
-	AnalyzeTimeout      int
-	ValidateStatus      bool //Actually return a validation result based on policy eval status, if false, then the validator returns allowed, but will submit missing images for analysis
-}
-
-type MutatorConfiguration struct {
-	Enabled        bool
-	AnnotationName string
+	RequireImageAnalyzed bool
+	RequirePassPolicy   bool
+	RequestAnalysis     bool
 }
 
 type PolicyMappingConfiguration struct {
@@ -95,9 +72,16 @@ type PolicyMappingConfiguration struct {
 }
 
 type RegexMapping struct {
-	SelectorType   string
+	SelectorType   MatchSelector
 	Value          string
 }
+
+type MatchSelector string
+const (
+	MatchLabel MatchSelector = "label"
+	MatchAnnotation MatchSelector = "annotation"
+	MatchAny MatchSelector = "any"
+	)
 
 /*
  Does the regex mapping match the candidate
@@ -106,7 +90,7 @@ func (m *RegexMapping) matches(imageRef string, annotations map[string]string) (
 	return regexp.Match(m.Value, []byte(imageRef))
 }
 
-func (pconf *PolicyMappingConfiguration) FindPolicy(imageRef string, annotations map[string]string) (string, error) {
+func (pconf *PolicyMappingConfiguration) FindPolicy(imageRef string, annotations map[string]string, labels map[string]string) (string, error) {
 	for _, mapping := range pconf.Mappings {
 		if v, err := mapping.matches(imageRef, annotations); err != nil {
 			if v {
@@ -118,8 +102,6 @@ func (pconf *PolicyMappingConfiguration) FindPolicy(imageRef string, annotations
 	}
 	return "", nil
 }
-
-//var resultCache *lru.TwoQueueCache
 
 func (a *admissionHook) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
 	glog.Info("Initializing handler")
@@ -137,15 +119,9 @@ func (a *admissionHook) ValidatingResource() (plural schema.GroupVersionResource
 }
 
 func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionRequest) *admissionv1beta1.AdmissionResponse {
-	var digest string
-	var analyzed bool
-	var ok bool
-	var imageObj anchore.AnchoreImage
 	var err error
-	policyId := ""
 	var pod v1.Pod
 	var containers  []v1.Container
-	var statusMsg string
 
 	status := &admissionv1beta1.AdmissionResponse{
 		Allowed: true,
@@ -170,46 +146,39 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 		for _, container := range containers {
 			image := container.Image
 			glog.Info("Checking image: " + image)
-			analyzed = false
-			analyzed, imageObj, err = IsImageAnalyzed(image, "")
-			if err != nil || ! analyzed {
-				glog.Info("Did not find analyzed image")
-				if config.Validator.AnalyzeIfNotPresent {
-					glog.Info("Configured to request analysis on un-analyzed images. Doing so now")
 
-					imgObj, analyzeErr := AnalyzeImage(image, config.Validator.AnalyzeTimeout)
-					if analyzeErr != nil {
-						glog.Error("Failed analysis, cannot evaluate policy")
-					} else {
-						digest = imgObj.ImageDigest
+			if config.Validator.RequirePassPolicy {
+				status.Allowed, status.Result.Message, err = validatePolicy(image, config)
+
+				// If configured, do the analysis, but do not wait and do not change admission result
+				if err != nil && config.Validator.RequestAnalysis {
+					_, err2 := AnalyzeImage(image)
+					if err2 != nil {
+						glog.Warning("During requested image analysis submission, an error occurred: ", err2)
 					}
-
 				}
-			} else {
-				glog.Info("Found image for ", image, " already analyzed")
-				digest = imageObj.ImageDigest
-			}
+			} else if config.Validator.RequireImageAnalyzed {
+				status.Allowed, status.Result.Message, err = validateAnalyzed(image, config)
 
-			if analyzed {
-				ok, err = CheckImage(image, digest, policyId)
-
-				if err != nil {
-					glog.Error("Error evaluating policy ", policyId, " for image ", image)
-					ok = false
+				// If configured, do the analysis, but do not wait and do not change admission result
+				if err != nil && config.Validator.RequestAnalysis {
+					_, err2 := AnalyzeImage(image)
+					if err2 != nil {
+						glog.Warning("During requested image analysis submission, an error occurred: ", err2)
+					}
 				}
+			} else if config.Validator.RequestAnalysis {
+				status.Allowed, status.Result.Message, err = passiveValidate(image, config)
 			} else {
-				ok = false
+				glog.Info("No check requirements in config and no analysis request configured. Allowing")
+				status.Allowed = true
 			}
-
-			status.Allowed, statusMsg = isValid(config.Validator, analyzed, ok)
 
 			if ! status.Allowed {
-				msg := fmt.Sprintf("Image %s in PodSpec for container %s failed to pass the policy check for policy %s", image, container.Name, policyId)
-				status.Result.Message = statusMsg
 				status.Result.Status = metav1.StatusFailure
-				glog.Warning(msg)
-			} else {
-				glog.Info("Image passed policy check: " + image)
+				if err != nil {
+					status.Result.Message = err.Error()
+				}
 			}
 		}
 	} else {
@@ -220,22 +189,47 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 	return status
 }
 
-func isValid(conf ValidatorConfiguration, isAnalyzed bool, validationOk bool) (bool, string) {
-	if conf.ValidateStatus {
-		if validationOk {
-			return true, "Policy evaluation successful and returned 'passed'"
-		} else {
-			if ! isAnalyzed {
-				return false, "Policy evaluation could not be performed because image has not been analyzed"
-			} else {
-				return false, "Policy evaluation was successful and returned 'failed'"
-			}
+func passiveValidate(image string, conf ControllerConfiguration) (bool, string, error) {
+	glog.Info("Performing passive validation. Will request image analysis and always allow admission")
+
+	imgObj, err := AnalyzeImage(image)
+	if err != nil {
+		glog.Error("Error from analysis request", err.Error())
+		return true, "Allowed but could not request analysis due to error", nil
+	}
+
+	return true, fmt.Sprintf("Image analysis for image %s requested and found mapped to digest %s", image, imgObj.ImageDigest), nil
+}
+
+func validateAnalyzed(image string, conf ControllerConfiguration) (bool, string, error) {
+	glog.Info("Performing validation that the image is analyzed by Anchore")
+	ok, imageObj, err := IsImageAnalyzed(image, "")
+	if err != nil {
+		return false, "", err
+	}
+
+	if ok {
+		return true, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
+	} else {
+		return false, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
+	}
+}
+
+func validatePolicy(image string, conf ControllerConfiguration) (bool, string, error) {
+	glog.Info("Performing validation that the image passes policy evaluation in Anchore")
+	ok, digest, err := CheckImage(image, "", config.Client.PolicyBundle)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			return false, fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
 		}
+		return false, "", err
 	}
-	if isAnalyzed {
-		return true, "Image is analyzed by Anchore"
+
+	if ok {
+		return true, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, conf.Client.PolicyBundle), nil
+	} else {
+		return false, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, conf.Client.PolicyBundle), nil
 	}
-	return false, "Image is not analyzed by Anchore, which is required per configuration"
 }
 
 /*
@@ -243,14 +237,11 @@ func isValid(conf ValidatorConfiguration, isAnalyzed bool, validationOk bool) (b
  or the analysis completes and the resulting record is returned.
 
  */
-func AnalyzeImage(imageRef string, waitTime int) (anchore.AnchoreImage, error) {
+func AnalyzeImage(imageRef string) (anchore.AnchoreImage, error) {
 	var annotations interface{}
-	var digest string
-	var img anchore.AnchoreImage
-	var result bool
 
 	annotations = map[string]string {
-		"AnalysisSource": "anchore-admission-controller",
+		"requestor": "anchore-admission-controller",
 	}
 
 	opts := map[string]interface{} {}
@@ -258,26 +249,20 @@ func AnalyzeImage(imageRef string, waitTime int) (anchore.AnchoreImage, error) {
 	req := anchore.ImageAnalysisRequest{
 		Tag:         imageRef,
 		Annotations: &annotations,
+		CreatedAt:   time.Now().UTC().Round(time.Second),
 	}
 
 	imageList, _, err := client.AnchoreEngineApi.AddImage(authCtx, req, opts)
 
 	if err != nil {
 		return anchore.AnchoreImage{}, err
-	} else {
-		digest = imageList[0].ImageDigest
 	}
 
-	// Wait for the result
-	endTime := time.Now().Add(time.Duration(waitTime) * time.Second)
-
-	for time.Now().Before(endTime) {
-		if result, img, err = IsImageAnalyzed(imageRef, digest); result && err == nil {
-			return img, nil
-		}
+	if len(imageList) == 0 {
+		return anchore.AnchoreImage{}, errors.New("No image record received in successful response to image add request")
 	}
 
-	return img, errors.New(fmt.Sprintf("Timeout of %d exceeded waiting for analysis to complete", config.Validator.AnalyzeTimeout))
+	return imageList[0], nil
 
 }
 
@@ -321,13 +306,13 @@ func lookupImage(imageRef string, optionalDigest string) (anchore.AnchoreImage, 
 	}
 }
 
-func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string) (bool, error) {
+func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string) (bool, string, error) {
 	var digest string
 
 	if optionalDigest == "" {
 		imageObj, err := lookupImage(imageRef, "")
 		if err != nil {
-			return false, err
+			return false, "", err
 		} else {
 			digest = imageObj.ImageDigest
 		}
@@ -343,14 +328,14 @@ func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string)
 
 	evaluations, _, chkErr:= client.AnchoreEngineApi.GetImagePolicyCheck(authCtx, digest, imageRef, localOptions)
 	if chkErr != nil {
-		return false, chkErr
+		return false, digest, chkErr
 	}
 
 	if len(evaluations) > 0 {
 		resultStatus := findResult(evaluations[0])
-		return strings.ToLower(resultStatus) == "pass", nil
+		return strings.ToLower(resultStatus) == "pass", digest, nil
 	} else {
-		return false, nil
+		return false, digest, nil
 	}
 
 }
@@ -368,7 +353,9 @@ func initClient(conf ControllerConfiguration) (*anchore.APIClient, context.Conte
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
 	cfg.BasePath = conf.Client.Endpoint
 
-	glog.Info(fmt.Sprintf("Configured URL: '%s' from '%s'", cfg.BasePath, conf.Client.Endpoint))
+	//if ! conf.Client.VerifyCert {
+	//	// TODO
+	//}
 
 	aClient := anchore.NewAPIClient(cfg)
 	//ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
@@ -382,7 +369,7 @@ func InitializeClient(conf ControllerConfiguration) error {
 	return err
 }
 
-func loadConfig(path string) (ControllerConfiguration, error) {
+func loadConfig(path string, envUsername string, envPassword string) (ControllerConfiguration, error) {
 	var conf ControllerConfiguration
 
 	if fd, err := os.Open(path); err == nil {
@@ -401,6 +388,14 @@ func loadConfig(path string) (ControllerConfiguration, error) {
 			return conf, err
 		}
 
+		if envUsername != "" {
+			conf.Client.Username = envUsername
+		}
+
+		if envPassword != "" {
+			conf.Client.Password = envPassword
+		}
+
 		return conf, nil
 	} else {
 		glog.Fatal("Cannot load configuration: ", err)
@@ -414,34 +409,40 @@ func main() {
 
 	// Configure
 	glog.Info("Initializing configuration")
-	configPath := "/config.json"
-	configEnv, found := os.LookupEnv("CONFIG_FILE_PATH")
+	configPath, found := os.LookupEnv("CONFIG_FILE_PATH")
 
-	if found {
-		configPath = configEnv
+	envUsr, usrFound := os.LookupEnv("ANCHORE_USERNAME")
+	envPassword, passFound := os.LookupEnv("ANCHORE_PASSWORD")
+
+	if ! usrFound {
+		envUsr = ""
+	}
+	if ! passFound {
+		envPassword = ""
+	}
+
+	if ! found {
+		configPath = "/config.json"
 	}
 
 	var err error
-	config, err = loadConfig(configPath)
+	config, err = loadConfig(configPath, envUsr, envPassword)
 	if err != nil {
 		glog.Fatal("Could not load configuration from ", configPath)
 		os.Exit(1)
 	}
 
 	err = InitializeClient(config)
+
 	if err != nil {
 		glog.Fatal("Cannot initialize the client", err)
 		os.Exit(1)
 	}
 
-	//resultCache, err = lru.New2Q(1024)
-
-	if err != nil {
-		glog.Fatal("Cannot initialize the cache")
-		os.Exit(1)
+	glog.Info("Starting server with URL: ", config.Client.Endpoint, " and config: ", config.Validator)
+	if config.Client.PolicyBundle != "" {
+		glog.Info("Using policy bundle: ", config.Client.PolicyBundle)
 	}
-
-	glog.Info("Starting server")
 
 	// Run the server
 	cmd.RunAdmissionServer(&admissionHook{})

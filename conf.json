@@ -5,14 +5,11 @@
     "analyzeTimeout": 0,
     "validateStatus": true
   },
-  "mutator": {
-    "enabled": true,
-    "annotationName": "images.anchore.com/validated"
-  },
   "client": {
     "endpoint": "http://localhost:8228",
     "username": "admin",
-    "password": "foobar"
+    "password": "foobar",
+    "policybundle": "test123"
   }
 }
 
