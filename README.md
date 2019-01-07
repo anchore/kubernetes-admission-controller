@@ -31,6 +31,10 @@ that are managed by Anchore Engine. Image records in Anchore Engine are given an
 help track their provenance.
 
 
+## Deploy
+
+The default way to deploy it is with a [Helm Chart](https://github.com/anchore/anchore-charts/tree/master/stable/anchore-admission-controller), see the chart README for more details.
+
 ## Build
 
 `docker build -t tag .` Should be all that is necessary to build.
