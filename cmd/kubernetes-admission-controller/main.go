@@ -71,13 +71,13 @@ func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (b
 		for k, v := range kvMap {
 			match, err := regexp.MatchString(selector.SelectorKeyRegex, k)
 			if err != nil {
-				log.Error(err, "Error evaluating regexp ", selector.SelectorKeyRegex, " against ", k)
+				log.Error(err, "Error evaluating regexp on key", "key", k, "regex", selector.SelectorKeyRegex)
 				match = false
 			}
 
 			match2, err := regexp.MatchString(selector.SelectorValueRegex, v)
 			if err != nil {
-				log.Error(err, "Error evaluating regexp ", selector.SelectorValueRegex, " against ", v)
+				log.Error(err, "Error evaluating regexp ", "value", v, "regex", selector.SelectorValueRegex)
 				match2 = false
 
 			}
@@ -89,6 +89,20 @@ func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (b
 		}
 	}
 
+	// Treat Name specially
+	if strings.ToLower(selector.SelectorKeyRegex) == "name" {
+		match, err := regexp.MatchString(selector.SelectorValueRegex, objMeta.Name)
+		if err != nil {
+			log.Error(err, "Failed evaluating regex against metadata Name entry", "name", objMeta.Name, "regex", selector.SelectorValueRegex)
+			match = false
+		}
+
+		if match {
+			return true, nil
+		}
+
+	}
+
 	return false, nil
 }
 
@@ -98,7 +112,7 @@ func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (b
 func matchImageResource(regex string, img string) (bool, error) {
 	log.Info("Matching image on regexp") //"regex", regex, "image", img)
 	matches, err := regexp.MatchString(regex, img)
-	log.Info("Match result is ")//, matches, " with err ", err)
+	log.Info("Match result", "match", matches)//, matches, " with err ", err)
 	return matches, err
 }
 
@@ -113,7 +127,7 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 		log.Info("Selecting based on pod metadata")
 		return &pod.ObjectMeta, nil
 	case NamespaceSelectorType:
-		log.Info("Selecting based on namespace ", pod.Namespace, " metadata")
+		log.Info("Selecting based on namespace", "namespace", pod.Namespace)
 		nsFound, err := clientset.CoreV1().Namespaces().Get(pod.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
@@ -179,14 +193,14 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 	if containers != nil && len(containers) > 0 {
 		for _, container := range containers {
 			image := container.Image
-			log.Info("Checking image: " + image)
+			log.Info("Checking image", "image", image)
 
 			log.Info("Evaluating selectors")
 
 			policyRef = nil
 
 			for _, selector := range config.PolicySelectors {
-				log.Info("Checking selector ", selector)
+				log.Info("Checking selector ", "selector", selector)
 				meta, err := resolveResource(&selector.Selector, &pod)
 				if err != nil {
 					log.Error(err, "Error checking selector, skipping ")
@@ -223,7 +237,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			if policyRef != nil {
 				for _, entry := range authConfig.Users {
 					if entry.Username == policyRef.Username {
-						log.Info("Found selector match for user ", entry.Username, " with policy ", policyRef.PolicyBundleId)
+						log.Info("Found selector match for user ", "Username", entry.Username, "policy", policyRef.PolicyBundleId)
 						anchoreClient, authCtx, _ = initClient(entry.Username, entry.Password, config.AnchoreEndpoint)
 					}
 				}
@@ -254,11 +268,11 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 				if err != nil && config.Validator.RequestAnalysis {
 					_, err2 := AnalyzeImage(image, anchoreClient, authCtx)
 					if err2 != nil {
-						log.Error(err, "During requested image analysis submission, an error occurred: ", err2)
+						log.Error(err2, "During requested image analysis submission, an error occurred", "initial err", err)
 					}
 				}
 			} else if config.Validator.RequestAnalysis {
-				log.Info("Requesting analysis of the image ", image)
+				log.Info("Requesting analysis", "image", image)
 				status.Allowed, status.Result.Message, err = passiveValidate(image, anchoreClient, authCtx)
 			} else {
 				log.Info("No check requirements in config and no analysis request configured. Allowing")
@@ -276,7 +290,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 		log.Error(err,"No container specs to validate")
 	}
 
-	log.Info("Returning status: ", status)
+	log.Info("Returning", "status", status)
 	return status
 }
 
@@ -286,7 +300,7 @@ func passiveValidate(image string, client *anchore.APIClient, authCtx context.Co
 
 	imgObj, err := AnalyzeImage(image, client, authCtx)
 	if err != nil {
-		log.Error(err, "Error from analysis request", err.Error())
+		log.Error(err, "Error from analysis request")
 		return true, "Allowed but could not request analysis due to error", nil
 	}
 
@@ -370,7 +384,7 @@ func IsImageAnalyzed(imageRef string, optionalDigest string, client *anchore.API
 func lookupImage(imageRef string, optionalDigest string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 	localOptions := make(map[string]interface{})
 	localOptions["fulltag"] = imageRef
-	log.Info("Getting image for ref ", imageRef)
+	log.Info("Getting image", "reference", imageRef)
 	var images anchore.AnchoreImageList
 	var err error
 
@@ -478,10 +492,10 @@ func updateAuthConfig(in fsnotify.Event) {
 	}
 }
 
-func initLogger() {//} (interface{}, error) {
+func initLogger() (interface{}, error) {
 	logz.SetLogger(logz.ZapLogger(false))
 	log = logz.Log.WithName("entrypoint")
-	//return log, nil
+	return log, nil
 }
 
 
