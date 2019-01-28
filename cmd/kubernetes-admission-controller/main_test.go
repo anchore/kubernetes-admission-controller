@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/golang/glog"
+	"github.com/fsnotify/fsnotify"
+	logger "github.com/golang/glog"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/api/admission/v1beta1"
 	"k8s.io/api/core/v1"
@@ -11,16 +13,355 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
-func TestConfig(t *testing.T) {
-	c, err := loadConfig("conf.json", "someuser", "somepassword")
-	if err == nil {
-		t.Log("Got config: ", c)
-	} else {
+func TestConfigUpdate(t *testing.T) {
+	//t.Skip("Disabled since it modifies local fs state")
+
+	var tmp ControllerConfiguration
+	configFileName := filepath.Join("testdata", "test_conf_init.json")
+	t.Log("Reading initial config")
+	v := viper.New()
+	v.SetConfigFile(configFileName)
+	err := v.ReadInConfig()
+	if err != nil {
 		t.Error(err)
 		t.Fail()
+	}
+
+	if v.Unmarshal(&tmp) != nil {
+		t.Error(err)
+		t.Fail()
+	} else {
+		cfg, _ := json.Marshal(tmp)
+		t.Log("Got initial update test config: ", string(cfg))
+	}
+
+	v.OnConfigChange(func(in fsnotify.Event) {
+		t.Log("Detected update and reloading!")
+		if v.ReadInConfig() != nil {
+			t.Error(err)
+			t.Fail()
+		}
+
+		if v.Unmarshal(&tmp) != nil {
+			t.Error(err)
+			t.Fail()
+		}
+	})
+
+	t.Log("Watching the config")
+	v.WatchConfig()
+
+	var enabled bool
+
+	t.Log("Starting the update cycler")
+	for counter := 0; counter < 10; counter ++ {
+		t.Log("Waiting ", counter, " out of 10")
+		time.Sleep(time.Duration(1 * time.Second))
+
+		//cfg, _ := json.Marshal(tmp)
+		//t.Log("Enabled: ", enabled)
+		t.Log("Current config enabled flag: ", tmp.Validator.Enabled)
+		enabled = tmp.Validator.Enabled
+
+		if counter % 2 != 0 {
+			// Update the file, should cause a reload
+			tmp2 := tmp
+			//t.Log("tmp2 = ", tmp2)
+			tmp2.Validator.Enabled = !enabled
+			tmpBytes, err := json.Marshal(tmp2)
+			if err != nil {
+				t.Error(err)
+				t.Fail()
+			}
+
+			if len(tmpBytes) <= 0 {
+				t.Error("No bytes found from marshalled struct")
+			} else {
+				t.Log("Updated config to write: ", string(tmpBytes))
+			}
+
+			t.Log("Writing updated config")
+			fd, err := os.Create(configFileName)
+			if err != nil {
+				t.Error(err)
+				t.Fail()
+			}
+
+			_, err = fd.Write(tmpBytes)
+			if err != nil {
+				t.Error(err)
+				t.Fail()
+			}
+
+			if err = fd.Close(); err != nil {
+				t.Error(err)
+				t.Fail()
+			}
+		}
+	}
+	t.Log("Complete")
+}
+
+func TestConfig(t *testing.T) {
+	v := viper.New()
+	configPath := filepath.Join("testdata", "test_conf.json")
+	v.SetConfigFile(configPath)
+	err := v.ReadInConfig()
+	if err != nil {
+		t.Error(err)
+		t.Fail()
+	}
+	t.Log("Cfg State: ", v)
+	var tmp ControllerConfiguration
+	err = v.Unmarshal(&tmp)
+	if err != nil {
+		t.Error(err)
+		t.Fail()
+	} else {
+		cfg, _ := json.Marshal(tmp)
+		t.Log("Got config: ", string(cfg))
+	}
+
+	var tmp2 AnchoreAuthConfig
+	v = viper.New()
+	configPath2 := filepath.Join("testdata", "test_creds.json")
+	v.SetConfigFile(configPath2)
+	err = v.ReadInConfig()
+	if err != nil {
+		t.Error(err)
+		t.Fail()
+	}
+	t.Log("AuthCfg State: ", v)
+	err = v.Unmarshal(&tmp2)
+	if err != nil {
+		t.Error(err)
+		t.Fail()
+	} else {
+		if len(tmp2.Users) <= 0 {
+			t.Error("No entries found")
+			t.Fail()
+		}
+
+		cfg, _ := json.Marshal(tmp2)
+		t.Log("Got auth config: ", string(cfg))
+	}
+
+	v = viper.New()
+	yamlCreds := filepath.Join("testdata", "test_creds.yaml")
+	v.SetConfigFile(yamlCreds)
+	err = v.ReadInConfig()
+	if err != nil {
+		t.Log("Could not read config")
+		t.Fail()
+	}
+	t.Log("AuthCfg State: ", v)
+	tmp2 = AnchoreAuthConfig{}
+	err = v.Unmarshal(&tmp2)
+	if err != nil {
+		t.Error(err)
+		t.Fail()
+	} else {
+		if len(tmp2.Users) <= 0 {
+			t.Error("No entries found")
+			t.Fail()
+		}
+
+		cfg, _ := json.Marshal(tmp2)
+		t.Log("Got auth config: ", string(cfg))
+	}
+
+}
+
+func TestMatchObjectMetadata(t *testing.T) {
+	initLogger()
+	var meta metav1.ObjectMeta
+	var selector ResourceSelector
+	var err error
+	var found bool
+
+	labels := map[string]string {
+		"labelkey": "lvalue",
+		"labelkey2": "lvalue2",
+		"labelowner": "lsometeam",
+	}
+
+	annotations := map[string]string {
+		"annotationkey": "avalue",
+		"annotationkey2": "avalue2",
+		"annotationowner": "asometeam",
+	}
+
+	meta = metav1.ObjectMeta{Labels: labels, Annotations: annotations}
+
+	// Match anything
+	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+
+	// Match Labels
+	selector = ResourceSelector{PodSelectorType, "label.*", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "labelowner", "lsometeam"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "labelowner", "lsome"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+
+	// Match annotations
+	selector = ResourceSelector{PodSelectorType, "annotation.*", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "annotationowner", "asometeam"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
+	// Correctly fail to match
+	selector = ResourceSelector{PodSelectorType, "own", ".*team"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched prefix properly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "notfound", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Log("Correctly failed to match")
+	} else {
+		t.Log("Incorrectly matched")
+		t.Fail()
+	}
+
+	selector = ResourceSelector{PodSelectorType, ".*", "anotherteam"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Log("Correctly failed to match")
+	} else {
+		t.Log("Incorrectly matched")
+		t.Fail()
+	}
+
+	selector = ResourceSelector{PodSelectorType, "owner", "anotherteam"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Log("Correctly failed to match")
+	} else {
+		t.Log("Incorrectly matched")
+		t.Fail()
+	}
+
+	// Match image
+	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
+	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
+	if found && err == nil {
+		t.Log("Correctly matched")
+	} else {
+		t.Log("Incorrectly failed to match")
+		t.Fail()
+	}
+
+	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
+	found, err = matchImageResource(selector.SelectorValueRegex, "alpine:latest")
+	if found && err == nil {
+		t.Log("Correctly matched")
+	} else {
+		t.Log("Incorrectly failed to match")
+		t.Fail()
+	}
+
+	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
+	found, err = matchImageResource(selector.SelectorValueRegex, "debian:jessie")
+	if ! found && err == nil {
+		t.Log("Correctly failed to match")
+	} else {
+		t.Log("Incorrectly matched or error")
+		t.Fail()
+	}
+
+}
+
+func TestMatchImageRef(t *testing.T) {
+	var selector ResourceSelector
+
+	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
+	found, err := matchImageResource(selector.SelectorValueRegex, "alpine")
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched prefix properly")
+	}
+
+	selector = ResourceSelector{ImageSelectorType, "", "alpine"}
+	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched prefix properly")
 	}
 }
 
@@ -68,34 +409,37 @@ func TestValidatePolicyOk(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true, true, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
@@ -146,34 +490,37 @@ func TestValidatePolicyFail(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true, true, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", "mybundle"},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "*", "*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
@@ -224,34 +571,37 @@ func TestValidatePolicyNotFound(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true, true, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "*", "*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
@@ -302,40 +652,43 @@ func TestValidateAnalyzedOk(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true, false, false},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
 	assert.True(t, resp.Allowed)
 }
-
 
 func TestValidateAnalyzedFail(t *testing.T) {
 	//Setup test service
@@ -381,40 +734,42 @@ func TestValidateAnalyzedFail(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true, false, false},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
-	assert.True(t, !resp.Allowed)
+	assert.False(t, resp.Allowed)
 }
-
 
 func TestValidatePassiveFound(t *testing.T) {
 	//Setup test service
@@ -460,34 +815,37 @@ func TestValidatePassiveFound(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, false, false, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
@@ -538,34 +896,37 @@ func TestValidatePassiveNotFound(t *testing.T) {
 
 	marshalledPod, err := json.Marshal(tpod)
 
-	if (err != nil ) {
-		log.Error("Failed marshalling pod spec")
+	if err != nil {
+		logger.Error("Failed marshalling pod spec")
 		t.Error("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, false, false, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
+		ts.URL,
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
 	}
 
-	InitializeClient(testConf)
 	config = testConf
+	authConfig = AnchoreAuthConfig{
+		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+	}
 
-	admSpec := v1beta1.AdmissionRequest {
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource: metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
-		Name: "somename",
-		Namespace: "default",
-		Operation: "CREATE",
-		Object: runtime.RawExtension{Raw: marshalledPod},
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
 	resp := adm.Validate(&admSpec)
 
 	obj, err := json.Marshal(resp)
-	if(err == nil) {
+	if err == nil {
 		fmt.Println(string(obj[:]))
 	}
 
@@ -665,12 +1026,11 @@ var ImageLookup = `
 
 var ImageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
 
-
 func TestLookupImage(t *testing.T) {
-	log.Info("Testing image lookup handling")
+	t.Log("Testing image lookup handling")
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/images" {
-			fmt.Fprint(w,"Ok")
+			fmt.Fprint(w, "Ok")
 
 		} else {
 			switch r.URL.Query().Get("fulltag") {
@@ -685,17 +1045,12 @@ func TestLookupImage(t *testing.T) {
 
 	defer ts.Close()
 
-	log.Info(fmt.Sprintf("URL: %s", ts.URL))
+	t.Log(fmt.Sprintf("URL: %s", ts.URL))
 
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, true, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
-	}
-
-	client, authCtx, err := initClient(testConf)
+	client, authCtx, err := initClient("admin", "foobar", ts.URL)
 
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	localOpts := make(map[string]interface{})
@@ -704,14 +1059,14 @@ func TestLookupImage(t *testing.T) {
 	var result string
 
 	for _, item := range calls {
-		log.Info(fmt.Sprintf("Checking %s", item))
+		t.Log(fmt.Sprintf("Checking %s", item))
 		localOpts["fulltag"] = item[0]
 		imageListing, _, err := client.AnchoreEngineApi.ListImages(authCtx, localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
-				log.Info("Expected error response from server: ", err)
+				t.Log("Expected error response from server: ", err)
 			} else {
-				log.Error(err)
+				logger.Error(err)
 				assert.Fail(t, "Did not expect an error")
 			}
 			continue
@@ -721,7 +1076,7 @@ func TestLookupImage(t *testing.T) {
 		result = imageListing[0].AnalysisStatus
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
-			log.Info(fmt.Sprintf("Expected %s but got %s", item[1], result))
+			t.Log(fmt.Sprintf("Expected %s but got %s", item[1], result))
 			t.Fail()
 		}
 	}
@@ -734,7 +1089,7 @@ Test the CheckImage function against some fake responses
  - Image not found
  - Bundle not found
 
- */
+*/
 func TestCheckImage(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -753,19 +1108,15 @@ func TestCheckImage(t *testing.T) {
 		}
 	}))
 
+
 	defer ts.Close()
 
-	log.Info(fmt.Sprintf("URL: %s", ts.URL))
+	t.Log(fmt.Sprintf("URL: %s", ts.URL))
 
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, true, true},
-		AnchoreClientConfiguration{ts.URL, "admin", "foobar", ""},
-	}
-
-	client, authCtx, err := initClient(testConf)
+	client, authCtx, err := initClient("admin", "foobar", ts.URL)
 
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	localOpts := make(map[string]interface{})
@@ -775,14 +1126,14 @@ func TestCheckImage(t *testing.T) {
 
 	for _, item := range calls {
 
-		log.Info(fmt.Sprintf("Checking %s", item))
+		t.Log(fmt.Sprintf("Checking %s", item))
 		policyEvaluations, _, err := client.AnchoreEngineApi.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
-				log.Info("Expected error response from server: ", err)
+				t.Log("Expected error response from server: ", err)
 
 			} else {
-				log.Error(err)
+				logger.Error(err)
 				assert.Fail(t, "Did not expect an error")
 			}
 			continue
@@ -792,7 +1143,7 @@ func TestCheckImage(t *testing.T) {
 		result = findResult(policyEvaluations[0])
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
-			log.Info(fmt.Sprintf("Expected %s but got %s", item[1], result))
+			t.Log(fmt.Sprintf("Expected %s but got %s", item[1], result))
 			t.Fail()
 		}
 	}

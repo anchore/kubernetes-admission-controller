@@ -1,0 +1,33 @@
+{
+  "Validator": {
+    "Enabled": true,
+    "RequireImageAnalyzed": false,
+    "RequirePassPolicy": true,
+    "RequestAnalysis": true
+  },
+  "AnchoreEndpoint": "localhost",
+  "PolicySelectors": [
+    {
+      "Selector": {
+        "ResourceType": "image",
+        "SelectorKeyRegex": ".*",
+        "SelectorValueRegex": "docker\\.io/.*"
+      },
+      "PolicyReference": {
+        "Username": "admin",
+        "PolicyBundleId": "dockerhubimagebundle-0"
+      }
+    },
+    {
+      "Selector": {
+        "ResourceType": "image",
+        "SelectorKeyRegex": ".*",
+        "SelectorValueRegex": "quay\\.io/.*"
+      },
+      "PolicyReference": {
+        "Username": "admin",
+        "PolicyBundleId": "quayimagebundle-0"
+      }
+    }
+  ]
+}

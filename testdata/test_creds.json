@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "password": "foobar"
+    },
+    {
+      "username": "opsuser1",
+      "password": "opsuser1password"
+    }
+  ]
+}
