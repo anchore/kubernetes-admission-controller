@@ -1,0 +1,15 @@
+apiVersion: skaffold/v1beta2
+kind: Config
+build:
+  artifacts:
+    - image: skaffold-helm
+deploy:
+  helm:
+    releases:
+      - name: skaffold-helm
+        chartPath: skaffold-helm
+        valuesFiles:
+          - skaffold-values-file.yaml
+        values:
+          image: skaffold-helm
+        namespace: skaffold

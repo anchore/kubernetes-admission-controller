@@ -1,0 +1,34 @@
+# Values for skaffold testing during dev of the controller
+
+logVerbosity: 8
+
+enableStrictGating: true
+enableAnalysisGating: false
+requestAnalysis: true
+
+credentialsSecret: testcreds
+
+anchoreEndpoint: "http://anchore-anchore-engine-api.anchore.svc.cluster.local:8228"
+policySelectors:
+  - Selector:
+      ResourceType: namespace
+      SelectorKeyRegex: Name
+      SelectorValueRegex: testns
+    PolicyReference:
+      Username: admin
+      PolicyBundleId: bundle1
+  - Selector:
+      ResourceType: pod
+      SelectorKeyRegex: stage
+      SelectorValueRegex: testing
+    PolicyReference:
+      Username: admin
+      PolicyBUndleId: bundle2
+  - Selector:
+      ResourceType: image
+      SelectorKeyRegex: .*
+      SelectorValueRegex: .*
+    PolicyReference:
+      Username: admin
+      PolicyBundleId: bundle2
+
