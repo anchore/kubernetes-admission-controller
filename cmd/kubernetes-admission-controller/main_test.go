@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"io"
 )
 
 func TestConfigUpdate(t *testing.T) {
@@ -24,9 +25,34 @@ func TestConfigUpdate(t *testing.T) {
 
 	var tmp ControllerConfiguration
 	configFileName := filepath.Join("testdata", "test_conf_init.json")
+
+	src, ferr := os.Open(configFileName)
+	if ferr != nil {
+		log.Error(ferr, "Cannot find input config file")
+		t.Fail()
+	} else {
+		defer src.Close()
+	}
+
+	tmpFileName := filepath.Join("testdata", "tmp_test_conf.json")
+	dest, ferr2 := os.Create(tmpFileName)
+	if ferr2 != nil {
+		log.Error(ferr2, "Cannot open new tmp file")
+		t.Fail()
+	} else {
+		defer dest.Close()
+		defer os.Remove(tmpFileName)
+	}
+
+	_, ferr = io.Copy(dest, src)
+	if ferr != nil {
+		log.Error(ferr,"Could not create a copy of the config file for testing")
+		t.Fail()
+	}
+
 	t.Log("Reading initial config")
 	v := viper.New()
-	v.SetConfigFile(configFileName)
+	v.SetConfigFile(tmpFileName)
 	err := v.ReadInConfig()
 	if err != nil {
 		t.Error(err)
@@ -43,12 +69,12 @@ func TestConfigUpdate(t *testing.T) {
 
 	v.OnConfigChange(func(in fsnotify.Event) {
 		t.Log("Detected update and reloading!")
-		if v.ReadInConfig() != nil {
+		if err = v.ReadInConfig(); err != nil {
 			t.Error(err)
 			t.Fail()
 		}
 
-		if v.Unmarshal(&tmp) != nil {
+		if err = v.Unmarshal(&tmp); err != nil {
 			t.Error(err)
 			t.Fail()
 		}
@@ -64,15 +90,12 @@ func TestConfigUpdate(t *testing.T) {
 		t.Log("Waiting ", counter, " out of 10")
 		time.Sleep(time.Duration(1 * time.Second))
 
-		//cfg, _ := json.Marshal(tmp)
-		//t.Log("Enabled: ", enabled)
 		t.Log("Current config enabled flag: ", tmp.Validator.Enabled)
 		enabled = tmp.Validator.Enabled
 
 		if counter % 2 != 0 {
 			// Update the file, should cause a reload
 			tmp2 := tmp
-			//t.Log("tmp2 = ", tmp2)
 			tmp2.Validator.Enabled = !enabled
 			tmpBytes, err := json.Marshal(tmp2)
 			if err != nil {
@@ -87,7 +110,7 @@ func TestConfigUpdate(t *testing.T) {
 			}
 
 			t.Log("Writing updated config")
-			fd, err := os.Create(configFileName)
+			fd, err := os.Create(tmpFileName)
 			if err != nil {
 				t.Error(err)
 				t.Fail()
@@ -105,6 +128,10 @@ func TestConfigUpdate(t *testing.T) {
 			}
 		}
 	}
+
+	t.Log("Sleeping 1s to let things flush and close cleanly")
+	time.Sleep(1 * time.Second)
+
 	t.Log("Complete")
 }
 
@@ -179,7 +206,12 @@ func TestConfig(t *testing.T) {
 }
 
 func TestMatchObjectMetadata(t *testing.T) {
-	initLogger()
+	_, logErr := initLogger()
+	if logErr != nil {
+		fmt.Println("Failed to initialize logging: ", logErr)
+		t.Fail()
+	}
+
 	var meta metav1.ObjectMeta
 	var selector ResourceSelector
 	var err error
