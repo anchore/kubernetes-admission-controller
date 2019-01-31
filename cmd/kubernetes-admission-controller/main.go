@@ -227,7 +227,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 						policyRef = &selector.PolicyReference
 						mode = selector.Mode
 						matched = true
-						glog.Info("Matched selector rule=", selector)
+						glog.Info("Matched selector rule=", selector, " with mode=", mode)
 						break
 					}
 				}
@@ -298,6 +298,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			} else {
 				glog.Info("Skipping analysis request")
 			}
+
 
 			if !status.Allowed {
 				status.Result.Status = metav1.StatusFailure
@@ -415,7 +416,9 @@ func IsImageAnalyzed(imageRef string, optionalDigest string, client *anchore.API
 	if err != nil {
 		return false, anchore.AnchoreImage{}, err
 	} else {
-		return imageObj.AnalysisStatus == "analyzed", imageObj, nil
+		isAnalyzed := imageObj.AnalysisStatus == "analyzed"
+		glog.Info("Image analyzed = ", isAnalyzed)
+		return isAnalyzed, imageObj, nil
 	}
 }
 
