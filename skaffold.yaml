@@ -7,7 +7,7 @@ deploy:
   helm:
     releases:
       - name: skaffold-helm
-        chartPath: skaffold-helm
+        chartPath: "anchore-admission-controller"
         valuesFiles:
           - skaffold-values-file.yaml
         values:

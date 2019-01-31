@@ -31,4 +31,3 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBundleId: bundle2
-
