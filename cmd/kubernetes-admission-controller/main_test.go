@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
-	logger "github.com/golang/glog"
+	"github.com/goharbor/harbor/src/jobservice/logger"
+	"github.com/golang/glog"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/api/admission/v1beta1"
@@ -28,7 +29,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	src, ferr := os.Open(configFileName)
 	if ferr != nil {
-		log.Error(ferr, "Cannot find input config file")
+		glog.Error(ferr, "Cannot find input config file")
 		t.Fail()
 	} else {
 		defer src.Close()
@@ -37,7 +38,7 @@ func TestConfigUpdate(t *testing.T) {
 	tmpFileName := filepath.Join("testdata", "tmp_test_conf.json")
 	dest, ferr2 := os.Create(tmpFileName)
 	if ferr2 != nil {
-		log.Error(ferr2, "Cannot open new tmp file")
+		glog.Error(ferr2, "Cannot open new tmp file")
 		t.Fail()
 	} else {
 		defer dest.Close()
@@ -46,7 +47,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	_, ferr = io.Copy(dest, src)
 	if ferr != nil {
-		log.Error(ferr,"Could not create a copy of the config file for testing")
+		glog.Error(ferr,"Could not create a copy of the config file for testing")
 		t.Fail()
 	}
 
@@ -206,11 +207,11 @@ func TestConfig(t *testing.T) {
 }
 
 func TestMatchObjectMetadata(t *testing.T) {
-	_, logErr := initLogger()
-	if logErr != nil {
-		fmt.Println("Failed to initialize logging: ", logErr)
-		t.Fail()
-	}
+	//_, logErr := initLogger()
+	//if logErr != nil {
+	//	fmt.Println("Failed to initialize logging: ", logErr)
+	//	t.Fail()
+	//}
 
 	var meta metav1.ObjectMeta
 	var selector ResourceSelector

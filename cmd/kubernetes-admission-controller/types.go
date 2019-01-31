@@ -15,9 +15,8 @@ type AnchoreAuthConfig struct {
 	Users []AnchoreCredential
 }
 
-// The key is the endpoint, username tuple
+
 type AnchoreCredential struct {
-	//Endpoint string
 	Username string
 	Password string
 }
@@ -29,9 +28,7 @@ type ValidatorConfiguration struct {
 	RequestAnalysis      bool
 }
 
-// Maps an endpoint, user tuple to a policy bundle. The bundle must exist on the engine addressed by the endpoint.
 type AnchoreClientConfiguration struct {
-	//Endpoint       string
 	Username       string
 	PolicyBundleId string
 }
@@ -54,10 +51,3 @@ const (
 	NamespaceSelectorType SelectorResourceType = "namespace"
 	ImageSelectorType     SelectorResourceType = "image"
 )
-
-//type CompiledSelector struct {
-//	resType SelectorResourceType
-//	keyRegex regexp.Regexp
-//	valueRegex regexp.Regexp
-//}
-
