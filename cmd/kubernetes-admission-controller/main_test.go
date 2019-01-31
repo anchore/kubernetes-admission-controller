@@ -253,6 +253,24 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
+	selector = ResourceSelector{PodSelectorType, "^label$", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if found || err != nil {
+		t.Error("Incorrectly matched")
+		t.Fail()
+	} else {
+		t.Log("Did not match, correctly")
+	}
+
+	selector = ResourceSelector{PodSelectorType, "label", ".*"}
+	found, err = matchObjMetadata(&selector, &meta)
+	if ! found || err != nil {
+		t.Error("Failed to match")
+		t.Fail()
+	} else {
+		t.Log("Matched all properly")
+	}
+
 	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
@@ -448,9 +466,9 @@ func TestValidatePolicyOk(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, true, true},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
 	}
 
 	config = testConf
@@ -529,9 +547,9 @@ func TestValidatePolicyFail(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, true, true},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "*", "*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
 	}
 
 	config = testConf
@@ -610,9 +628,9 @@ func TestValidatePolicyNotFound(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, true, true},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "*", "*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
 	}
 
 	config = testConf
@@ -691,9 +709,9 @@ func TestValidateAnalyzedOk(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, false, false},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, AnalysisGateMode}},
 	}
 
 	config = testConf
@@ -773,9 +791,9 @@ func TestValidateAnalyzedFail(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true, false, false},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, AnalysisGateMode}},
 	}
 
 	config = testConf
@@ -854,9 +872,9 @@ func TestValidatePassiveFound(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, false, false, true},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, BreakGlassMode}},
 	}
 
 	config = testConf
@@ -935,9 +953,9 @@ func TestValidatePassiveNotFound(t *testing.T) {
 	}
 
 	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, false, false, true},
+		ValidatorConfiguration{true, true},
 		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}}},
+		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, BreakGlassMode}},
 	}
 
 	config = testConf

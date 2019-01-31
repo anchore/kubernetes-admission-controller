@@ -2,8 +2,6 @@
 
 logVerbosity: 8
 
-enableStrictGating: true
-enableAnalysisGating: false
 requestAnalysis: true
 
 credentialsSecret: testcreds
@@ -17,6 +15,7 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBundleId: bundle1
+    Mode: policy
   - Selector:
       ResourceType: pod
       SelectorKeyRegex: stage
@@ -24,6 +23,15 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBUndleId: bundle2
+    Mode: policy
+  - Selector:
+      ResourceType: image
+      SelectorKeyRegex: .*
+      SelectorValueRegex: ^alpine.*
+      PolicyReference:
+        Username: admin
+        PolicyBundleId: bundle2
+    Mode: policy
   - Selector:
       ResourceType: image
       SelectorKeyRegex: .*
@@ -31,3 +39,4 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBundleId: bundle2
+    Mode: analysis

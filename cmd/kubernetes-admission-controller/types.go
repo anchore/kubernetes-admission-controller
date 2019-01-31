@@ -23,8 +23,8 @@ type AnchoreCredential struct {
 
 type ValidatorConfiguration struct {
 	Enabled              bool
-	RequireImageAnalyzed bool
-	RequirePassPolicy    bool
+	//RequireImageAnalyzed bool
+	//RequirePassPolicy    bool
 	RequestAnalysis      bool
 }
 
@@ -42,12 +42,19 @@ type ResourceSelector struct {
 type PolicySelector struct {
 	Selector ResourceSelector
 	PolicyReference AnchoreClientConfiguration
+	Mode GateModeType
 }
 
 type SelectorResourceType string
+type GateModeType string
 
 const (
 	PodSelectorType       SelectorResourceType = "pod"
 	NamespaceSelectorType SelectorResourceType = "namespace"
 	ImageSelectorType     SelectorResourceType = "image"
+	PolicyGateMode        GateModeType = "policy"
+	AnalysisGateMode      GateModeType = "analysis"
+	BreakGlassMode        GateModeType = "breakglass"
 )
+
+

@@ -117,14 +117,14 @@ func matchImageResource(regex string, img string) (bool, error) {
   Get the correct set of ObjectMeta for comparison, or nil if not a selector that uses ObjectMeta
 */
 func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMeta, error) {
-	glog.Info("Resolving resource for selection")
+	glog.Info("Resolving the resource to use for selection")
 
 	switch selector.ResourceType {
 	case PodSelectorType:
-		glog.Info("Selecting based on pod metadata")
+		glog.Info("Using pod metadata")
 		return &pod.ObjectMeta, nil
 	case NamespaceSelectorType:
-		glog.Info("Selecting based on namespace ", "namespace=", pod.Namespace)
+		glog.Info("Using namespace metadata ", "namespace=", pod.Namespace)
 		nsFound, err := clientset.CoreV1().Namespaces().Get(pod.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
@@ -132,7 +132,7 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 			return &nsFound.ObjectMeta, nil
 		}
 	case ImageSelectorType:
-		glog.Info("Selecting based on image reference")
+		glog.Info("Using image reference")
 		return nil, nil
 	default:
 		return nil, nil
@@ -161,6 +161,10 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 	var anchoreClient *anchore.APIClient
 	var authCtx context.Context
 	var policyRef *AnchoreClientConfiguration
+	var mode GateModeType
+	var imageDigest string
+
+	matched := false
 
 	status := &admissionv1beta1.AdmissionResponse{
 		Allowed: true,
@@ -189,10 +193,10 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 	if containers != nil && len(containers) > 0 {
 		for _, container := range containers {
+			matched = false
+			imageDigest = ""
 			image := container.Image
-			glog.Info("Checking image ", "image=", image)
-
-			glog.Info("Evaluating selectors")
+			glog.Info("Evaluating selectors for image=", image)
 
 			policyRef = nil
 
@@ -212,6 +216,8 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 						}
 
 						policyRef = &selector.PolicyReference
+						mode = selector.Mode
+						matched = true
 						break
 					}
 				} else {
@@ -221,11 +227,19 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 							continue
 						}
 						policyRef = &selector.PolicyReference
+						mode = selector.Mode
+						matched = true
 						break
 					} else {
 						glog.Error("No match. err=", err)
 					}
 				}
+			}
+
+			if ! matched {
+				// No rule matched, so skip this image
+				glog.Info("No selector match found")
+				break
 			}
 
 			anchoreClient = nil
@@ -240,51 +254,65 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 				}
 			}
 
-			if (config.Validator.RequirePassPolicy || config.Validator.RequireImageAnalyzed || config.Validator.RequestAnalysis) && (anchoreClient == nil || authCtx == nil) {
-				glog.Error( "No matching selector found or not client configuration set. Failing validation")
-				status.Allowed = false
-				status.Result.Status = metav1.StatusFailure
-				status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
-				return status
-			}
-
-			if config.Validator.RequirePassPolicy {
-				status.Allowed, status.Result.Message, err = validatePolicy(image, policyRef.PolicyBundleId, anchoreClient, authCtx)
-
-				// If configured, do the analysis, but do not wait and do not change admission result
-				if err != nil && config.Validator.RequestAnalysis {
-					_, err2 := AnalyzeImage(image, anchoreClient, authCtx)
-					if err2 != nil {
-						glog.Error( "During requested image analysis submission, an error occurred: ", err2)
-					}
+			if mode == PolicyGateMode {
+				if anchoreClient == nil || authCtx == nil {
+					glog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					status.Allowed = false
+					status.Result.Status = metav1.StatusFailure
+					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
+					break
 				}
-			} else if config.Validator.RequireImageAnalyzed {
-				status.Allowed, status.Result.Message, err = validateAnalyzed(image, anchoreClient, authCtx)
 
-				// If configured, do the analysis, but do not wait and do not change admission result
-				if err != nil && config.Validator.RequestAnalysis {
-					_, err2 := AnalyzeImage(image, anchoreClient, authCtx)
-					if err2 != nil {
-						glog.Error("During requested image analysis submission, an error occurred err=", err2, " initial err=", err)
-					}
+				status.Allowed, imageDigest, status.Result.Message, err = validatePolicy(image, policyRef.PolicyBundleId, anchoreClient, authCtx)
+
+			} else if mode == AnalysisGateMode {
+				if anchoreClient == nil || authCtx == nil {
+					glog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					status.Allowed = false
+					status.Result.Status = metav1.StatusFailure
+					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
+					break
 				}
-			} else if config.Validator.RequestAnalysis {
-				glog.Info("Requesting analysis", " image=", image)
-				status.Allowed, status.Result.Message, err = passiveValidate(image, anchoreClient, authCtx)
-			} else {
+
+				status.Allowed, imageDigest, status.Result.Message, err = validateAnalyzed(image, anchoreClient, authCtx)
+
+			} else if mode == BreakGlassMode {
 				glog.Info("No check requirements in config and no analysis request configured. Allowing")
 				status.Allowed = true
+			} else {
+				glog.Error("Got unexpected mode value for matching selector. Failing on error. Mode=", mode)
+				status.Allowed = false
+				status.Result.Status = metav1.StatusFailure
+				status.Result.Message = "Invalid controller configuration encountered. Could not execute check correctly"
+				break
+			}
+
+			// Only request analysis if the other gates failed, indicating either missing image or policy failure
+			if imageDigest == "" && config.Validator.RequestAnalysis {
+				if anchoreClient == nil || authCtx == nil {
+					glog.Error("Image analysis request configured but no credentials mapped to execute the call. Skipping")
+				} else {
+					glog.Info("Requesting analysis of image ", "image=", image)
+					_, _, err = passiveValidate(image, anchoreClient, authCtx)
+					if err != nil {
+						glog.Error("Error requesting analysis of image, but ignoring for validation result. err=", err)
+					}
+				}
+			} else {
+				glog.Info("Skipping analysis request")
 			}
 
 			if !status.Allowed {
 				status.Result.Status = metav1.StatusFailure
-				if err != nil {
+				if err != nil && status.Result.Message == "" {
 					status.Result.Message = err.Error()
 				}
+				//Break on the first disallowed image if there are multiple
+				break
 			}
 		}
 	} else {
-		glog.Error( "No container specs to validate")
+		glog.Info( "No container specs to validate")
 	}
 
 	glog.Info("Returning status=", status)
@@ -304,34 +332,42 @@ func passiveValidate(image string, client *anchore.APIClient, authCtx context.Co
 	return true, fmt.Sprintf("Image analysis for image %s requested and found mapped to digest %s", image, imgObj.ImageDigest), nil
 }
 
-func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
+// Returns bool is analyzed, string digest, string message, and error
+func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
+
 	glog.Info("Performing validation that the image is analyzed by Anchore")
 	ok, imageObj, err := IsImageAnalyzed(image, "", client, authCtx)
 	if err != nil {
-		return false, "", err
+		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			return false, "", fmt.Sprintf("Image %s is not analyzed.", image), nil
+		} else {
+			glog.Error("Error checking anchore for image analysis status: err=", err)
+			return false, "", "", err
+		}
 	}
 
 	if ok {
-		return true, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
+		return true, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
 	} else {
-		return false, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
+		return false, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
 	}
 }
 
-func validatePolicy(image string, bundleId string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
+// Returns bool is passed policy, string digest, string message, and error
+func validatePolicy(image string, bundleId string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
 	glog.Info("Performing validation that the image passes policy evaluation in Anchore")
 	ok, digest, err := CheckImage(image, "", bundleId, client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
-			return false, fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
+			return false, "", fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
 		}
-		return false, "", err
+		return false, digest, "", err
 	}
 
 	if ok {
-		return true, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, bundleId), nil
+		return true, digest, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, bundleId), nil
 	} else {
-		return false, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
+		return false, digest, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
 	}
 }
 
@@ -348,6 +384,7 @@ func AnalyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Co
 	}
 
 	opts := map[string]interface{}{}
+	opts["autosubscribe"] = false
 
 	req := anchore.ImageAnalysisRequest{
 		Tag:         imageRef,
