@@ -121,10 +121,8 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 
 	switch selector.ResourceType {
 	case PodSelectorType:
-		glog.Info("Using pod metadata")
 		return &pod.ObjectMeta, nil
 	case NamespaceSelectorType:
-		glog.Info("Using namespace metadata ", "namespace=", pod.Namespace)
 		nsFound, err := clientset.CoreV1().Namespaces().Get(pod.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
@@ -132,7 +130,6 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 			return &nsFound.ObjectMeta, nil
 		}
 	case ImageSelectorType:
-		glog.Info("Using image reference")
 		return nil, nil
 	default:
 		return nil, nil
@@ -218,6 +215,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 						policyRef = &selector.PolicyReference
 						mode = selector.Mode
 						matched = true
+						glog.Info("Matched selector rule=", selector)
 						break
 					}
 				} else {
@@ -229,9 +227,8 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 						policyRef = &selector.PolicyReference
 						mode = selector.Mode
 						matched = true
+						glog.Info("Matched selector rule=", selector)
 						break
-					} else {
-						glog.Error("No match. err=", err)
 					}
 				}
 			}
@@ -248,7 +245,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			if policyRef != nil {
 				for _, entry := range authConfig.Users {
 					if entry.Username == policyRef.Username {
-						glog.Info("Found selector match for user ", "Username", entry.Username, "policy", policyRef.PolicyBundleId)
+						glog.Info("Found selector match for user ", "Username=", entry.Username, " PolicyBundleId=", policyRef.PolicyBundleId)
 						anchoreClient, authCtx, _ = initClient(entry.Username, entry.Password, config.AnchoreEndpoint)
 					}
 				}
@@ -339,6 +336,7 @@ func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.C
 	ok, imageObj, err := IsImageAnalyzed(image, "", client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			glog.Info("Image is not analyzed")
 			return false, "", fmt.Sprintf("Image %s is not analyzed.", image), nil
 		} else {
 			glog.Error("Error checking anchore for image analysis status: err=", err)
@@ -347,8 +345,10 @@ func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.C
 	}
 
 	if ok {
+		glog.Info("Image is analyzed")
 		return true, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
 	} else {
+		glog.Info("Image is not analyzed")
 		return false, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
 	}
 }
@@ -359,14 +359,18 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
 	ok, digest, err := CheckImage(image, "", bundleId, client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			glog.Info("Image is not analyzed, cannot evaluate policy")
 			return false, "", fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
 		}
+		glog.Error("Image is not analyzed, error during evaluation check. err=", err)
 		return false, digest, "", err
 	}
 
 	if ok {
+		glog.Info("Image passed policy evaluation. image=", image)
 		return true, digest, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, bundleId), nil
 	} else {
+		glog.Info("Image failed policy evaluation. image=", image)
 		return false, digest, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
 	}
 }

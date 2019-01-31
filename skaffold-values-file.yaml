@@ -28,9 +28,9 @@ policySelectors:
       ResourceType: image
       SelectorKeyRegex: .*
       SelectorValueRegex: ^alpine.*
-      PolicyReference:
-        Username: admin
-        PolicyBundleId: bundle2
+    PolicyReference:
+      Username: admin
+      PolicyBundleId: bundle2
     Mode: policy
   - Selector:
       ResourceType: image
