@@ -33,7 +33,8 @@ help track their provenance.
 
 ## Deploy
 
-The default way to deploy it is with a [Helm Chart](https://github.com/anchore/anchore-charts/tree/master/stable/anchore-admission-controller), see the chart README for more details.
+The tested way to deploy the controller is with the [Helm Chart](https://github.com/anchore/anchore-charts/tree/master/stable/anchore-admission-controller), see the chart README for more details
+on its own configuration including tls/cert setup that is necessary to have the k8s apiserver contact the controller securely.
 
 ## Build
 
@@ -45,51 +46,138 @@ _CONFIG_FILE_PATH_ - Path to the config file. The server will use _/config.json_
 _ANCHORE_USERNAME_ - Username for the anchore http client, overrides the config file value
 _ANCHORE_PASSWORD_ - Password for the anchore http client, overrides the config file value
 
-## Configuration File
+
+
+## Configuration Files
+
+The controller uses a pair of configuration files to facilitate managing secrets in a different way than configuration.
+Configuration is handled in the configuration file, while anchore user credentials are read from the credentials file, which is attached
+to the container as mounted secret.
+
+The helm chart mounts the config file at: /config/config.json and the credentials at /credentials/credentials.json
+
+The locations of the files can be set with environment variables:
+CREDENTIALS_FILE_PATH - the full file path including filename for the credential list (e.g. /credentials.json)
+CONFIG_FILE_PATH - the full file path including filename for the config file (e.g. /config.json)
+
+### Credentials Configuration
+Since the mapping of an validation request can result in different policies evaluated, the controller needs a way to get
+the credentials necessary to access a specific policy. The credentials config provides this as a json file (usually mounted from a secret)
+The format is:
+```
+{
+  "users": [
+    {"username": "user1", "password": "password1"},
+    {"username": "user2", "password": "password2"}
+  ]
+}
+
+These must all be valid credentials for the endpoint specified in the configuration
+
+
+```
+### Controller Configuration 
 
 The server loads the configuration from the _CONFIG_FILE_PATH_ location (defaults to _/config.json_)
 
-
-
-type AnchoreClientConfiguration struct {
-	Endpoint            string
-	Username            string
-	Password            string
-	PolicyBundle        string
-	//VerifyCert          bool
-}
-
-type ValidatorConfiguration struct {
-	Enabled             bool
-	RequireImageAnalyzed bool
-	RequirePassPolicy   bool
-	RequestAnalysis     bool
-}
-
-The configuration is a json file. Example:
+The configuration is a json file that contains the selector rules and endpoint for contacting anchore engine,
+the credentials are merged in from the credentials config described in the previous section.
+ 
+Example:
 ```
 {
+  "anchoreEndpoint": "https://anchore-engine-api.anchore.svc.cluster.local:8228",
   "validator": {
     "enabled": true,
-    "requireimageanalyzed": false,
-    "requirepasspolicy": true,
-    "requestanalysis": true
+    "requestAnalysis": true
   },
-  "client": {
-    "endpoint": "http://localhost:8228",
-    "username": "admin",
-    "password": "foobar",
-    "policybundle": "test123"
-  }
+  "selectors": [
+    {
+      "selector": {
+        "resourcetype": "pod",
+        "selectorkeyregex": "^breakglass$",
+        "selectorvalueregex": "^true"
+      },
+      "policyReference": {
+        "username": "user1",
+        "policyBundleId": "application_bundle"
+      },
+      "mode": "breakglass"
+      },
+    {
+    "selector": {
+      "resourcetype": "pod",
+      "selectorkeyregex": "^app$",
+      "selectorvalueregex": "^demoapp.*"
+    },
+    "policyReference": {
+      "username": "user1",
+      "policyBundleId": "application_bundle"
+    },
+    "mode": "policy"
+    },
+    {
+    "selector": {
+      "resourcetype": "namespace",
+      "selectorkeyregex": "name",
+      "selectorvalueregex": "^testing$"
+    },
+    "policyReference": {
+      "username": "user1",
+      "policyBundleId": "test_bundle"
+    },
+    "mode": "policy",
+    },
+    {
+    "selector": {
+      "resourcetype": "image",
+      "selectorkeyregex": ".*",
+      "selectorvalueregex": ".*"
+    },
+    "policyReference": {
+      "username": "user1",
+      "policyBundleId": "default"
+    },
+    "mode": "analysis"
+    }
+  ]
 }
 ```
 
-
 ### Validator Config Details
-* _requirepasspolicy_ - boolean, overrides the other values. If true, all images in the spec must already be analyzed by the Anchore Engine and must pass policy evaluation of the configured policy. Which policy to use is specified in config by _policybundle_.
-* _requireanalyzed_ - boolean. overrides _requestanalysis_ and if set admission will only occur if all images in the spec have been analyzed by Anchore Engine.
+* _anchoreEndpoint_ - The api endpoint to send requests to. May be internal or external to the cluster running the controller, only must be reachable on the network
+* _enabled_ - (currently unused) boolean. In future udpates, if false, will operate in a dry-run like mode to enable testing/debugging
 * _requestanalysis_ - boolean. If set and the above two conditions do not hold (either set to false or fail in evaluation) then the controller will request an image be analyzed by the Engine, but not block for completion.
 
-### Client Config
-* _policybundle_ - String. The policy bundle id to evaluate. If unset, the evaluation will use the user's active bundle in Anchore Engine, which is configured in the Engine, not in the admission controller.
+
+### Selectors
+* _selector_ - The rule to match
+* _policyReference_ - The policy to use (w/username scope) if the selector rule matches
+
+#### Selector
+* _resourceType_ - string (enum): one of "pod", "namespace", "image". Determines which metadata is used for the selection match
+* _selectorKeyRegex_ - string: regex to use to select the name, or use an annotation/label for comparison of values with the next regex. 
+The value "name" is treated specially for pods and namespaces where it will use the actual name rather than looking for a label/annotation with the key "name".
+
+* _selectorValueRegex_ - string: regex to evaluate against a key-value pair (annotation or label) that was matched by the selectorKeyRegex
+
+Selector Execution:
+For namespaces and pods, as a selector is evaluated against metadata each rule is checked against all labels then all annotations before moving to the next rule.
+Labels take precedence over annotations for pod/namespace metadata matches.
+
+Example:
+To select on the name of a namespace to which a pod belongs:
+```
+"selector": {
+  "resourceType": "namespace",
+  "selectorKeyRegex": "name",
+  "selectorValueRegex": "testing_namespace"
+} 
+```
+
+### Updating Configuration
+
+The controller monitors the config and credential files for updates and will automatically reload them dynamically so no restart is
+required to update rules or credentials.
+
 
