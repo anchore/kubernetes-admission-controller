@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/fsnotify/fsnotify"
 	"github.com/goharbor/harbor/src/jobservice/logger"
-	"github.com/golang/glog"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"io"
 	"k8s.io/api/admission/v1beta1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-	"io"
 )
 
 func TestConfigUpdate(t *testing.T) {
@@ -29,8 +28,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	src, ferr := os.Open(configFileName)
 	if ferr != nil {
-		glog.Error(ferr, "Cannot find input config file")
-		t.Fail()
+		t.Fatal(ferr, "Cannot find input config file")
 	} else {
 		defer src.Close()
 	}
@@ -38,8 +36,7 @@ func TestConfigUpdate(t *testing.T) {
 	tmpFileName := filepath.Join("testdata", "tmp_test_conf.json")
 	dest, ferr2 := os.Create(tmpFileName)
 	if ferr2 != nil {
-		glog.Error(ferr2, "Cannot open new tmp file")
-		t.Fail()
+		t.Fatal(ferr2, "Cannot open new tmp file")
 	} else {
 		defer dest.Close()
 		defer os.Remove(tmpFileName)
@@ -47,8 +44,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	_, ferr = io.Copy(dest, src)
 	if ferr != nil {
-		glog.Error(ferr,"Could not create a copy of the config file for testing")
-		t.Fail()
+		t.Fatal(ferr,"Could not create a copy of the config file for testing")
 	}
 
 	t.Log("Reading initial config")
@@ -138,6 +134,8 @@ func TestConfigUpdate(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	v := viper.New()
+	f, _ := os.Getwd()
+	t.Log(f)
 	configPath := filepath.Join("testdata", "test_conf.json")
 	v.SetConfigFile(configPath)
 	err := v.ReadInConfig()
@@ -1123,7 +1121,7 @@ func TestLookupImage(t *testing.T) {
 			continue
 		}
 
-		fmt.Printf("Images: %s\n", imageListing)
+		fmt.Printf("Images: %v\n", imageListing)
 		result = imageListing[0].AnalysisStatus
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
