@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
-	"github.com/goharbor/harbor/src/jobservice/logger"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"io"
@@ -1153,7 +1152,7 @@ func TestCheckImage(t *testing.T) {
 	client, authCtx, err := initClient("admin", "foobar", ts.URL)
 
 	if err != nil {
-		logger.Fatal(err)
+		t.Fatal(err)
 	}
 
 	localOpts := make(map[string]interface{})

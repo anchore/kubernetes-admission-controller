@@ -101,6 +101,23 @@ Go-toml provides two handy command line tools:
     tomljson --help
     ```
 
+### Docker image
+
+Those tools are also availble as a Docker image from
+[dockerhub](https://hub.docker.com/r/pelletier/go-toml). For example, to
+use `tomljson`:
+
+```
+docker run -v $PWD:/workdir pelletier/go-toml tomljson /workdir/example.toml
+```
+
+Only master (`latest`) and tagged versions are published to dockerhub. You
+can build your own image as usual:
+
+```
+docker build -t go-toml .
+```
+
 ## Contribute
 
 Feel free to report bugs and patches using GitHub's pull requests system on
@@ -109,12 +126,7 @@ much appreciated!
 
 ### Run tests
 
-You have to make sure two kind of tests run:
-
-1. The Go unit tests
-2. The TOML examples base
-
-You can run both of them using `./test.sh`.
+`go test ./...`
 
 ### Fuzzing
 
