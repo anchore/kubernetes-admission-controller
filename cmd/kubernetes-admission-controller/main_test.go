@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
-	"github.com/goharbor/harbor/src/jobservice/logger"
-	"github.com/golang/glog"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"io"
 	"k8s.io/api/admission/v1beta1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,7 +17,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-	"io"
 )
 
 func TestConfigUpdate(t *testing.T) {
@@ -29,8 +27,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	src, ferr := os.Open(configFileName)
 	if ferr != nil {
-		glog.Error(ferr, "Cannot find input config file")
-		t.Fail()
+		t.Fatal(ferr, "Cannot find input config file")
 	} else {
 		defer src.Close()
 	}
@@ -38,8 +35,7 @@ func TestConfigUpdate(t *testing.T) {
 	tmpFileName := filepath.Join("testdata", "tmp_test_conf.json")
 	dest, ferr2 := os.Create(tmpFileName)
 	if ferr2 != nil {
-		glog.Error(ferr2, "Cannot open new tmp file")
-		t.Fail()
+		t.Fatal(ferr2, "Cannot open new tmp file")
 	} else {
 		defer dest.Close()
 		defer os.Remove(tmpFileName)
@@ -47,8 +43,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	_, ferr = io.Copy(dest, src)
 	if ferr != nil {
-		glog.Error(ferr,"Could not create a copy of the config file for testing")
-		t.Fail()
+		t.Fatal(ferr,"Could not create a copy of the config file for testing")
 	}
 
 	t.Log("Reading initial config")
@@ -56,13 +51,11 @@ func TestConfigUpdate(t *testing.T) {
 	v.SetConfigFile(tmpFileName)
 	err := v.ReadInConfig()
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
 	}
 
 	if v.Unmarshal(&tmp) != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
 	} else {
 		cfg, _ := json.Marshal(tmp)
 		t.Log("Got initial update test config: ", string(cfg))
@@ -71,13 +64,11 @@ func TestConfigUpdate(t *testing.T) {
 	v.OnConfigChange(func(in fsnotify.Event) {
 		t.Log("Detected update and reloading!")
 		if err = v.ReadInConfig(); err != nil {
-			t.Error(err)
-			t.Fail()
+			t.Fatal(err)
 		}
 
 		if err = v.Unmarshal(&tmp); err != nil {
-			t.Error(err)
-			t.Fail()
+			t.Fatal(err)
 		}
 	})
 
@@ -100,12 +91,12 @@ func TestConfigUpdate(t *testing.T) {
 			tmp2.Validator.Enabled = !enabled
 			tmpBytes, err := json.Marshal(tmp2)
 			if err != nil {
-				t.Error(err)
-				t.Fail()
+				t.Fatal(err)
+
 			}
 
 			if len(tmpBytes) <= 0 {
-				t.Error("No bytes found from marshalled struct")
+				t.Fatal("No bytes found from marshalled struct")
 			} else {
 				t.Log("Updated config to write: ", string(tmpBytes))
 			}
@@ -113,19 +104,19 @@ func TestConfigUpdate(t *testing.T) {
 			t.Log("Writing updated config")
 			fd, err := os.Create(tmpFileName)
 			if err != nil {
-				t.Error(err)
-				t.Fail()
+				t.Fatal(err)
+
 			}
 
 			_, err = fd.Write(tmpBytes)
 			if err != nil {
-				t.Error(err)
-				t.Fail()
+				t.Fatal(err)
+
 			}
 
 			if err = fd.Close(); err != nil {
-				t.Error(err)
-				t.Fail()
+				t.Fatal(err)
+
 			}
 		}
 	}
@@ -138,19 +129,21 @@ func TestConfigUpdate(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	v := viper.New()
+	f, _ := os.Getwd()
+	t.Log(f)
 	configPath := filepath.Join("testdata", "test_conf.json")
 	v.SetConfigFile(configPath)
 	err := v.ReadInConfig()
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
+
 	}
 	t.Log("Cfg State: ", v)
 	var tmp ControllerConfiguration
 	err = v.Unmarshal(&tmp)
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
+
 	} else {
 		cfg, _ := json.Marshal(tmp)
 		t.Log("Got config: ", string(cfg))
@@ -162,18 +155,18 @@ func TestConfig(t *testing.T) {
 	v.SetConfigFile(configPath2)
 	err = v.ReadInConfig()
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
+
 	}
 	t.Log("AuthCfg State: ", v)
 	err = v.Unmarshal(&tmp2)
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
+
 	} else {
 		if len(tmp2.Users) <= 0 {
-			t.Error("No entries found")
-			t.Fail()
+			t.Fatal("No entries found")
+
 		}
 
 		cfg, _ := json.Marshal(tmp2)
@@ -185,19 +178,18 @@ func TestConfig(t *testing.T) {
 	v.SetConfigFile(yamlCreds)
 	err = v.ReadInConfig()
 	if err != nil {
-		t.Log("Could not read config")
-		t.Fail()
+		t.Fatal("Could not read config")
 	}
 	t.Log("AuthCfg State: ", v)
 	tmp2 = AnchoreAuthConfig{}
 	err = v.Unmarshal(&tmp2)
 	if err != nil {
-		t.Error(err)
-		t.Fail()
+		t.Fatal(err)
+
 	} else {
 		if len(tmp2.Users) <= 0 {
-			t.Error("No entries found")
-			t.Fail()
+			t.Fatal("No entries found")
+
 		}
 
 		cfg, _ := json.Marshal(tmp2)
@@ -210,7 +202,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	//_, logErr := initLogger()
 	//if logErr != nil {
 	//	fmt.Println("Failed to initialize logging: ", logErr)
-	//	t.Fail()
+	//
 	//}
 
 	var meta metav1.ObjectMeta
@@ -236,8 +228,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -247,8 +239,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "label.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -256,8 +248,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "^label$", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if found || err != nil {
-		t.Error("Incorrectly matched")
-		t.Fail()
+		t.Fatal("Incorrectly matched")
+
 	} else {
 		t.Log("Did not match, correctly")
 	}
@@ -265,8 +257,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "label", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -274,8 +266,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -283,8 +275,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "labelowner", "lsometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -292,8 +284,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "labelowner", "lsome"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -301,8 +293,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -312,8 +304,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "annotation.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -321,8 +313,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "annotationowner", "asometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched all properly")
 	}
@@ -331,8 +323,8 @@ func TestMatchObjectMetadata(t *testing.T) {
 	selector = ResourceSelector{PodSelectorType, "own", ".*team"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched prefix properly")
 	}
@@ -343,7 +335,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
-		t.Fail()
+
 	}
 
 	selector = ResourceSelector{PodSelectorType, ".*", "anotherteam"}
@@ -352,7 +344,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
-		t.Fail()
+
 	}
 
 	selector = ResourceSelector{PodSelectorType, "owner", "anotherteam"}
@@ -361,7 +353,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
-		t.Fail()
+
 	}
 
 	// Match image
@@ -371,7 +363,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly matched")
 	} else {
 		t.Log("Incorrectly failed to match")
-		t.Fail()
+
 	}
 
 	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
@@ -380,7 +372,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly matched")
 	} else {
 		t.Log("Incorrectly failed to match")
-		t.Fail()
+
 	}
 
 	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
@@ -389,7 +381,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched or error")
-		t.Fail()
+
 	}
 
 }
@@ -400,8 +392,8 @@ func TestMatchImageRef(t *testing.T) {
 	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
 	found, err := matchImageResource(selector.SelectorValueRegex, "alpine")
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched prefix properly")
 	}
@@ -409,8 +401,8 @@ func TestMatchImageRef(t *testing.T) {
 	selector = ResourceSelector{ImageSelectorType, "", "alpine"}
 	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
 	if ! found || err != nil {
-		t.Error("Failed to match")
-		t.Fail()
+		t.Fatal("Failed to match")
+
 	} else {
 		t.Log("Matched prefix properly")
 	}
@@ -461,8 +453,7 @@ func TestValidatePolicyOk(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling pod spec")
 	}
 
 	testConf := ControllerConfiguration{
@@ -542,8 +533,8 @@ func TestValidatePolicyFail(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -623,8 +614,7 @@ func TestValidatePolicyNotFound(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -704,8 +694,7 @@ func TestValidateAnalyzedOk(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -786,8 +775,7 @@ func TestValidateAnalyzedFail(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -867,8 +855,7 @@ func TestValidatePassiveFound(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -948,8 +935,7 @@ func TestValidatePassiveNotFound(t *testing.T) {
 	marshalledPod, err := json.Marshal(tpod)
 
 	if err != nil {
-		logger.Error("Failed marshalling pod spec")
-		t.Error("Failed marshalling")
+		t.Fatal("Failed marshalling")
 	}
 
 	testConf := ControllerConfiguration{
@@ -1101,7 +1087,7 @@ func TestLookupImage(t *testing.T) {
 	client, authCtx, err := initClient("admin", "foobar", ts.URL)
 
 	if err != nil {
-		logger.Fatal(err)
+		t.Fatal(err)
 	}
 
 	localOpts := make(map[string]interface{})
@@ -1117,18 +1103,17 @@ func TestLookupImage(t *testing.T) {
 			if item[1] == "notfound" {
 				t.Log("Expected error response from server: ", err)
 			} else {
-				logger.Error(err)
-				assert.Fail(t, "Did not expect an error")
+				t.Fatal("Did not expect an error")
 			}
 			continue
 		}
 
-		fmt.Printf("Images: %s\n", imageListing)
+		fmt.Printf("Images: %v\n", imageListing)
 		result = imageListing[0].AnalysisStatus
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
-			t.Log(fmt.Sprintf("Expected %s but got %s", item[1], result))
-			t.Fail()
+			t.Fatal(fmt.Sprintf("Expected %s but got %s", item[1], result))
+
 		}
 	}
 }
@@ -1167,7 +1152,7 @@ func TestCheckImage(t *testing.T) {
 	client, authCtx, err := initClient("admin", "foobar", ts.URL)
 
 	if err != nil {
-		logger.Fatal(err)
+		t.Fatal(err)
 	}
 
 	localOpts := make(map[string]interface{})
@@ -1184,8 +1169,7 @@ func TestCheckImage(t *testing.T) {
 				t.Log("Expected error response from server: ", err)
 
 			} else {
-				logger.Error(err)
-				assert.Fail(t, "Did not expect an error")
+				t.Fatal(t, "Did not expect an error")
 			}
 			continue
 		}
@@ -1194,8 +1178,7 @@ func TestCheckImage(t *testing.T) {
 		result = findResult(policyEvaluations[0])
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
-			t.Log(fmt.Sprintf("Expected %s but got %s", item[1], result))
-			t.Fail()
+			t.Fatal(fmt.Sprintf("Expected %s but got %s", item[1], result))
 		}
 	}
 

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
 	"github.com/fsnotify/fsnotify"
-	"github.com/golang/glog"
+	"k8s.io/klog"
 	"github.com/spf13/viper"
 	"reflect"
 	"strings"
@@ -70,13 +70,13 @@ func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (b
 		for k, v := range kvMap {
 			match, err := regexp.MatchString(selector.SelectorKeyRegex, k)
 			if err != nil {
-				glog.Error("Error evaluating regexp key= ", k, " regex = ", selector.SelectorKeyRegex, " err=", err)
+				klog.Error("Error evaluating regexp key= ", k, " regex = ", selector.SelectorKeyRegex, " err=", err)
 				match = false
 			}
 
 			match2, err := regexp.MatchString(selector.SelectorValueRegex, v)
 			if err != nil {
-				glog.Error("Error evaluating regexp ", " value = ", v, " regex = ", selector.SelectorValueRegex, " err=", err)
+				klog.Error("Error evaluating regexp ", " value = ", v, " regex = ", selector.SelectorValueRegex, " err=", err)
 				match2 = false
 
 			}
@@ -92,7 +92,7 @@ func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (b
 	if strings.ToLower(selector.SelectorKeyRegex) == "name" {
 		match, err := regexp.MatchString(selector.SelectorValueRegex, objMeta.Name)
 		if err != nil {
-			glog.Error("Failed evaluating regex against metadata Name entry = ", objMeta.Name, " regex = ", selector.SelectorValueRegex, " err=", err)
+			klog.Error("Failed evaluating regex against metadata Name entry = ", objMeta.Name, " regex = ", selector.SelectorValueRegex, " err=", err)
 			match = false
 		}
 
@@ -117,7 +117,7 @@ func matchImageResource(regex string, img string) (bool, error) {
   Get the correct set of ObjectMeta for comparison, or nil if not a selector that uses ObjectMeta
 */
 func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMeta, error) {
-	glog.Info("Resolving the resource to use for selection")
+	klog.Info("Resolving the resource to use for selection")
 
 	switch selector.ResourceType {
 	case PodSelectorType:
@@ -137,7 +137,7 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 }
 
 func (a *admissionHook) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
-	glog.Info("Initializing handler")
+	klog.Info("Initializing handler")
 
 	return nil
 }
@@ -170,14 +170,14 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 	// Handle higher-level types as well as pods, helps make error messages cleaner
 	if strings.ToLower(admissionSpec.Kind.Kind) != "pod" {
-		glog.Info("Non-pod validation requested. No validation to do")
+		klog.Info("Non-pod validation requested. No validation to do")
 		return status
 	}
 
-	glog.Info("Handling a Pod validation")
+	klog.Info("Handling a Pod validation")
 	err = json.Unmarshal(admissionSpec.Object.Raw, &pod)
 	if err != nil {
-		glog.Error( "Could not parse the pod spec err=", err)
+		klog.Error( "Could not parse the pod spec err=", err)
 		status.Allowed = false
 		status.Result.Status = metav1.StatusFailure
 		status.Result.Reason = "Error parsing admission request pod spec"
@@ -193,41 +193,41 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			matched = false
 			imageDigest = ""
 			image := container.Image
-			glog.Info("Evaluating selectors for image=", image)
+			klog.Info("Evaluating selectors for image=", image)
 
 			policyRef = nil
 
 			for _, selector := range config.PolicySelectors {
-				glog.Info("Checking selector ", "selector=", selector)
+				klog.Info("Checking selector ", "selector=", selector)
 				meta, err := resolveResource(&selector.Selector, &pod)
 				if err != nil {
-					glog.Error("Error checking selector, skipping err=", err)
+					klog.Error("Error checking selector, skipping err=", err)
 					continue
 				}
 
 				if meta != nil {
 					if match, err := matchObjMetadata(&selector.Selector, meta); match {
 						if err != nil {
-							glog.Error("Error doing selector match on metadata err=", err)
+							klog.Error("Error doing selector match on metadata err=", err)
 							continue
 						}
 
 						policyRef = &selector.PolicyReference
 						mode = selector.Mode
 						matched = true
-						glog.Info("Matched selector rule=", selector)
+						klog.Info("Matched selector rule=", selector)
 						break
 					}
 				} else {
 					if match, err := matchImageResource(selector.Selector.SelectorValueRegex, image); match {
 						if err != nil {
-							glog.Error("Error doing selector match on image reference err=", err)
+							klog.Error("Error doing selector match on image reference err=", err)
 							continue
 						}
 						policyRef = &selector.PolicyReference
 						mode = selector.Mode
 						matched = true
-						glog.Info("Matched selector rule=", selector, " with mode=", mode)
+						klog.Info("Matched selector rule=", selector, " with mode=", mode)
 						break
 					}
 				}
@@ -235,7 +235,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			if ! matched {
 				// No rule matched, so skip this image
-				glog.Info("No selector match found")
+				klog.Info("No selector match found")
 				break
 			}
 
@@ -245,7 +245,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			if policyRef != nil {
 				for _, entry := range authConfig.Users {
 					if entry.Username == policyRef.Username {
-						glog.Info("Found selector match for user ", "Username=", entry.Username, " PolicyBundleId=", policyRef.PolicyBundleId)
+						klog.Info("Found selector match for user ", "Username=", entry.Username, " PolicyBundleId=", policyRef.PolicyBundleId)
 						anchoreClient, authCtx, _ = initClient(entry.Username, entry.Password, config.AnchoreEndpoint)
 					}
 				}
@@ -253,7 +253,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			if mode == PolicyGateMode {
 				if anchoreClient == nil || authCtx == nil {
-					glog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					klog.Error( "No valid policy reference with valid credentials found. Failing validation")
 					status.Allowed = false
 					status.Result.Status = metav1.StatusFailure
 					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
@@ -264,7 +264,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			} else if mode == AnalysisGateMode {
 				if anchoreClient == nil || authCtx == nil {
-					glog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					klog.Error( "No valid policy reference with valid credentials found. Failing validation")
 					status.Allowed = false
 					status.Result.Status = metav1.StatusFailure
 					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
@@ -274,10 +274,10 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 				status.Allowed, imageDigest, status.Result.Message, err = validateAnalyzed(image, anchoreClient, authCtx)
 
 			} else if mode == BreakGlassMode {
-				glog.Info("No check requirements in config and no analysis request configured. Allowing")
+				klog.Info("No check requirements in config and no analysis request configured. Allowing")
 				status.Allowed = true
 			} else {
-				glog.Error("Got unexpected mode value for matching selector. Failing on error. Mode=", mode)
+				klog.Error("Got unexpected mode value for matching selector. Failing on error. Mode=", mode)
 				status.Allowed = false
 				status.Result.Status = metav1.StatusFailure
 				status.Result.Message = "Invalid controller configuration encountered. Could not execute check correctly"
@@ -287,16 +287,16 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			// Only request analysis if the other gates failed, indicating either missing image or policy failure
 			if imageDigest == "" && config.Validator.RequestAnalysis {
 				if anchoreClient == nil || authCtx == nil {
-					glog.Error("Image analysis request configured but no credentials mapped to execute the call. Skipping")
+					klog.Error("Image analysis request configured but no credentials mapped to execute the call. Skipping")
 				} else {
-					glog.Info("Requesting analysis of image ", "image=", image)
+					klog.Info("Requesting analysis of image ", "image=", image)
 					_, _, err = passiveValidate(image, anchoreClient, authCtx)
 					if err != nil {
-						glog.Error("Error requesting analysis of image, but ignoring for validation result. err=", err)
+						klog.Error("Error requesting analysis of image, but ignoring for validation result. err=", err)
 					}
 				}
 			} else {
-				glog.Info("Skipping analysis request")
+				klog.Info("Skipping analysis request")
 			}
 
 
@@ -310,20 +310,20 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			}
 		}
 	} else {
-		glog.Info( "No container specs to validate")
+		klog.Info( "No container specs to validate")
 	}
 
-	glog.Info("Returning status=", status)
+	klog.Info("Returning status=", status)
 	return status
 }
 
 func passiveValidate(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
-	glog.Info("Performing passive validation. Will request image analysis and always allow admission")
+	klog.Info("Performing passive validation. Will request image analysis and always allow admission")
 	var err error
 
 	imgObj, err := AnalyzeImage(image, client, authCtx)
 	if err != nil {
-		glog.Error( "Error from analysis request err=", err)
+		klog.Error( "Error from analysis request err=", err)
 		return true, "Allowed but could not request analysis due to error", nil
 	}
 
@@ -333,45 +333,45 @@ func passiveValidate(image string, client *anchore.APIClient, authCtx context.Co
 // Returns bool is analyzed, string digest, string message, and error
 func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
 
-	glog.Info("Performing validation that the image is analyzed by Anchore")
+	klog.Info("Performing validation that the image is analyzed by Anchore")
 	ok, imageObj, err := IsImageAnalyzed(image, "", client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
-			glog.Info("Image is not analyzed")
+			klog.Info("Image is not analyzed")
 			return false, "", fmt.Sprintf("Image %s is not analyzed.", image), nil
 		} else {
-			glog.Error("Error checking anchore for image analysis status: err=", err)
+			klog.Error("Error checking anchore for image analysis status: err=", err)
 			return false, "", "", err
 		}
 	}
 
 	if ok {
-		glog.Info("Image is analyzed")
+		klog.Info("Image is analyzed")
 		return true, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
 	} else {
-		glog.Info("Image is not analyzed")
+		klog.Info("Image is not analyzed")
 		return false, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
 	}
 }
 
 // Returns bool is passed policy, string digest, string message, and error
 func validatePolicy(image string, bundleId string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
-	glog.Info("Performing validation that the image passes policy evaluation in Anchore")
+	klog.Info("Performing validation that the image passes policy evaluation in Anchore")
 	ok, digest, err := CheckImage(image, "", bundleId, client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
-			glog.Info("Image is not analyzed, cannot evaluate policy")
+			klog.Info("Image is not analyzed, cannot evaluate policy")
 			return false, "", fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
 		}
-		glog.Error("Image is not analyzed, error during evaluation check. err=", err)
+		klog.Error("Image is not analyzed, error during evaluation check. err=", err)
 		return false, digest, "", err
 	}
 
 	if ok {
-		glog.Info("Image passed policy evaluation. image=", image)
+		klog.Info("Image passed policy evaluation. image=", image)
 		return true, digest, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, bundleId), nil
 	} else {
-		glog.Info("Image failed policy evaluation. image=", image)
+		klog.Info("Image failed policy evaluation. image=", image)
 		return false, digest, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
 	}
 }
@@ -417,7 +417,7 @@ func IsImageAnalyzed(imageRef string, optionalDigest string, client *anchore.API
 		return false, anchore.AnchoreImage{}, err
 	} else {
 		isAnalyzed := imageObj.AnalysisStatus == "analyzed"
-		glog.Info("Image analyzed = ", isAnalyzed)
+		klog.Info("Image analyzed = ", isAnalyzed)
 		return isAnalyzed, imageObj, nil
 	}
 }
@@ -425,7 +425,7 @@ func IsImageAnalyzed(imageRef string, optionalDigest string, client *anchore.API
 func lookupImage(imageRef string, optionalDigest string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 	localOptions := make(map[string]interface{})
 	localOptions["fulltag"] = imageRef
-	glog.Info("Getting image from anchore engine. Reference=", imageRef)
+	klog.Info("Getting image from anchore engine. Reference=", imageRef)
 	var images anchore.AnchoreImageList
 	var err error
 
@@ -441,7 +441,7 @@ func lookupImage(imageRef string, optionalDigest string, client *anchore.APIClie
 		return anchore.AnchoreImage{}, err
 	}
 
-	glog.Info("Getting image")
+	klog.Info("Getting image")
 	if len(images) == 0 {
 		return anchore.AnchoreImage{}, errors.New(fmt.Sprintf("No images found with tag %s", imageRef))
 	} else {
@@ -510,26 +510,26 @@ func initClient(username string, password string, endpoint string) (*anchore.API
 }
 
 func updateConfig(in fsnotify.Event) {
-	glog.Info("Detected update event to the configuration file. Will reload")
+	klog.Info("Detected update event to the configuration file. Will reload")
 	err := confVpr.ReadInConfig()
 	if err != nil {
-		glog.Error( "Error updating configuration. err=", err)
+		klog.Error( "Error updating configuration. err=", err)
 	}
 	err = confVpr.Unmarshal(&config)
 	if err != nil {
-		glog.Error( "Error updating configuration. err=", err)
+		klog.Error( "Error updating configuration. err=", err)
 	}
 }
 
 func updateAuthConfig(in fsnotify.Event) {
-	glog.Info("Detected update event to the configuration file. Will reload")
+	klog.Info("Detected update event to the configuration file. Will reload")
 	err := authVpr.ReadInConfig()
 	if err != nil {
-		glog.Error( "Error updating auth configuration. err=", err)
+		klog.Error( "Error updating auth configuration. err=", err)
 	}
 	err = authVpr.Unmarshal(&authConfig)
 	if err != nil {
-		glog.Error( "Error updating auth configuration. err=", err)
+		klog.Error( "Error updating auth configuration. err=", err)
 	}
 }
 
@@ -547,7 +547,7 @@ func main() {
 	flag.CommandLine.Parse([]string{})
 
 	// Configure
-	glog.Info("Initializing configuration")
+	klog.Info("Initializing configuration")
 	configPath, found := os.LookupEnv(configFilePathEnvVar)
 
 	if !found {
@@ -559,61 +559,61 @@ func main() {
 		authPath = "/credentials.json"
 	}
 
-	glog.Info("Loading configuration from ", configPath)
+	klog.Info("Loading configuration from ", configPath)
 	confVpr = viper.New()
 	confVpr.SetConfigFile(configPath)
 	err := confVpr.ReadInConfig()
 	if err != nil {
-		glog.Error("Could not load configuration err=", err)
+		klog.Error("Could not load configuration err=", err)
 		panic(err.Error())
 	}
 
 	err = confVpr.Unmarshal(&config)
 	if err != nil {
-		glog.Error("Error unmarshalling configuration err=", err)
+		klog.Error("Error unmarshalling configuration err=", err)
 		panic(err.Error())
 	}
 
 	confVpr.OnConfigChange(updateConfig)
 	confVpr.WatchConfig()
 
-	glog.Info("Loading creds from ", authPath)
+	klog.Info("Loading creds from ", authPath)
 	authVpr = viper.New()
 	authVpr.SetConfigFile(authPath)
 	err2 := authVpr.ReadInConfig()
 	if err2 != nil {
-		glog.Error("Could not load auth configuration err=", err)
+		klog.Error("Could not load auth configuration err=", err)
 		panic(err.Error())
 	}
 
 	err = authVpr.Unmarshal(&authConfig)
 	if err != nil {
-		glog.Error("Error unmarshalling auth configuration err=", err)
+		klog.Error("Error unmarshalling auth configuration err=", err)
 		panic(err.Error())
 	}
 	authVpr.OnConfigChange(updateAuthConfig)
 	authVpr.WatchConfig()
 
 	if err != nil {
-		glog.Error("Cannot initialize the client err=", err)
+		klog.Error("Cannot initialize the client err=", err)
 		panic(err.Error())
 	}
 
 	// creates client with in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		glog.Error("Error building in-cluster config for k8s client err=", err)
+		klog.Error("Error building in-cluster config for k8s client err=", err)
 		panic(err.Error())
 	}
 
 	// creates the clientset
 	clientset, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		glog.Error("Error getting k8s client err=", err)
+		klog.Error("Error getting k8s client err=", err)
 		panic(err.Error())
 	}
 
-	glog.Info("Starting server")
+	klog.Info("Starting server")
 
 	// Run the server
 	cmd.RunAdmissionServer(&admissionHook{})
