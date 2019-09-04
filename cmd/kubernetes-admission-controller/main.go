@@ -252,7 +252,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			}
 
 			if mode == PolicyGateMode {
-				if anchoreClient == nil || authCtx == nil {
+				if anchoreClient == nil || authCtx == nil || policyRef == nil {
 					klog.Error( "No valid policy reference with valid credentials found. Failing validation")
 					status.Allowed = false
 					status.Result.Status = metav1.StatusFailure
@@ -580,8 +580,8 @@ func main() {
 	klog.Info("Loading creds from ", authPath)
 	authVpr = viper.New()
 	authVpr.SetConfigFile(authPath)
-	err2 := authVpr.ReadInConfig()
-	if err2 != nil {
+	err = authVpr.ReadInConfig()
+	if err != nil {
 		klog.Error("Could not load auth configuration err=", err)
 		panic(err.Error())
 	}
