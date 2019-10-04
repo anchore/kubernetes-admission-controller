@@ -11,7 +11,7 @@ fi
 if ! helm repo list | grep charts.anchore.io
 then
 	echo Helm must be configured to have the Anchore Charts repo
-	echo To add the repo use: "helm repo add anchore-charts http://charts.anchore.io/stable ; helm repo update"
+	echo To add the repo use: "helm repo add anchore-stable http://charts.anchore.io/stable ; helm repo update"
 fi
 
 helm fetch --untar anchore-stable/anchore-admission-controller
