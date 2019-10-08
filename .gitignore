@@ -19,5 +19,7 @@ skaffold-helm
 
 # Files used for testing in place
 validating-webhook.yaml
-anchore-admission-controller
 
+anchore-admission-controller
+build
+pkg/anchore/**/docs
