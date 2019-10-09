@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -486,11 +487,18 @@ func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string,
 }
 
 func findResult(parsed_result map[string]interface{}) string {
-	//Looks thru a parsed result for the status value, assumes this result is for a single image
-	// digest := reflect.ValueOf(parsed_result).MapKeys()[0].String()
-	// tag := reflect.ValueOf(parsed_result[digest]).MapKeys()[0].String()
-	status := parsed_result["status"]
-	return fmt.Sprintf("%s", status)
+	// Looks thru a parsed result for the status value, assumes this result is for a single image
+	digest := reflect.ValueOf(parsed_result).MapKeys()[0].String()
+	tag := reflect.ValueOf(parsed_result[digest]).MapKeys()[0]
+	result := reflect.ValueOf(reflect.ValueOf(parsed_result[digest]).MapIndex(tag).Interface()).Index(0).Elem()
+	for _, key := range result.MapKeys() {
+		if key.Interface() == "status" {
+			status := result.MapIndex(key)
+			return fmt.Sprintf("%s", status)
+		}
+	}
+
+	return fmt.Sprintf("%s", "failed to get status")
 }
 
 func initClient(username string, password string, endpoint string) (*anchore.APIClient, context.Context, error) {

@@ -13,6 +13,7 @@
 
 # IDEs/Editors
 .idea
+.vscode
 
 # Soft-link for connecting charts if present
 skaffold-helm

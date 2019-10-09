@@ -3,20 +3,23 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/viper"
-	"github.com/stretchr/testify/assert"
 	"io"
-	"k8s.io/api/admission/v1beta1"
-	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
+	"github.com/antihax/optional"
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"k8s.io/api/admission/v1beta1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestConfigUpdate(t *testing.T) {
@@ -43,7 +46,7 @@ func TestConfigUpdate(t *testing.T) {
 
 	_, ferr = io.Copy(dest, src)
 	if ferr != nil {
-		t.Fatal(ferr,"Could not create a copy of the config file for testing")
+		t.Fatal(ferr, "Could not create a copy of the config file for testing")
 	}
 
 	t.Log("Reading initial config")
@@ -78,14 +81,14 @@ func TestConfigUpdate(t *testing.T) {
 	var enabled bool
 
 	t.Log("Starting the update cycler")
-	for counter := 0; counter < 10; counter ++ {
+	for counter := 0; counter < 10; counter++ {
 		t.Log("Waiting ", counter, " out of 10")
 		time.Sleep(time.Duration(1 * time.Second))
 
 		t.Log("Current config enabled flag: ", tmp.Validator.Enabled)
 		enabled = tmp.Validator.Enabled
 
-		if counter % 2 != 0 {
+		if counter%2 != 0 {
 			// Update the file, should cause a reload
 			tmp2 := tmp
 			tmp2.Validator.Enabled = !enabled
@@ -210,15 +213,15 @@ func TestMatchObjectMetadata(t *testing.T) {
 	var err error
 	var found bool
 
-	labels := map[string]string {
-		"labelkey": "lvalue",
-		"labelkey2": "lvalue2",
+	labels := map[string]string{
+		"labelkey":   "lvalue",
+		"labelkey2":  "lvalue2",
 		"labelowner": "lsometeam",
 	}
 
-	annotations := map[string]string {
-		"annotationkey": "avalue",
-		"annotationkey2": "avalue2",
+	annotations := map[string]string{
+		"annotationkey":   "avalue",
+		"annotationkey2":  "avalue2",
 		"annotationowner": "asometeam",
 	}
 
@@ -227,18 +230,17 @@ func TestMatchObjectMetadata(t *testing.T) {
 	// Match anything
 	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
 		t.Log("Matched all properly")
 	}
 
-
 	// Match Labels
 	selector = ResourceSelector{PodSelectorType, "label.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -256,7 +258,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "label", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -265,7 +267,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -274,7 +276,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "labelowner", "lsometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -283,7 +285,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "labelowner", "lsome"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -292,18 +294,17 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
 		t.Log("Matched all properly")
 	}
 
-
 	// Match annotations
 	selector = ResourceSelector{PodSelectorType, "annotation.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -312,7 +313,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "annotationowner", "asometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -322,7 +323,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	// Correctly fail to match
 	selector = ResourceSelector{PodSelectorType, "own", ".*team"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -331,7 +332,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "notfound", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
@@ -340,7 +341,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, ".*", "anotherteam"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
@@ -349,7 +350,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{PodSelectorType, "owner", "anotherteam"}
 	found, err = matchObjMetadata(&selector, &meta)
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched")
@@ -377,7 +378,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
 	found, err = matchImageResource(selector.SelectorValueRegex, "debian:jessie")
-	if ! found && err == nil {
+	if !found && err == nil {
 		t.Log("Correctly failed to match")
 	} else {
 		t.Log("Incorrectly matched or error")
@@ -391,7 +392,7 @@ func TestMatchImageRef(t *testing.T) {
 
 	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
 	found, err := matchImageResource(selector.SelectorValueRegex, "alpine")
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -400,7 +401,7 @@ func TestMatchImageRef(t *testing.T) {
 
 	selector = ResourceSelector{ImageSelectorType, "", "alpine"}
 	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
-	if ! found || err != nil {
+	if !found || err != nil {
 		t.Fatal("Failed to match")
 
 	} else {
@@ -411,6 +412,7 @@ func TestMatchImageRef(t *testing.T) {
 func TestValidatePolicyOk(t *testing.T) {
 	//Setup test service
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/images" {
 			switch r.URL.Path {
 			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
@@ -652,6 +654,7 @@ func TestValidatePolicyNotFound(t *testing.T) {
 func TestValidateAnalyzedOk(t *testing.T) {
 	//Setup test service
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/images" {
 			switch r.URL.Path {
 			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
@@ -707,7 +710,6 @@ func TestValidateAnalyzedOk(t *testing.T) {
 	authConfig = AnchoreAuthConfig{
 		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
 	}
-
 
 	admSpec := v1beta1.AdmissionRequest{
 		UID:         "abc123",
@@ -1066,6 +1068,7 @@ var ImageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data n
 func TestLookupImage(t *testing.T) {
 	t.Log("Testing image lookup handling")
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/images" {
 			fmt.Fprint(w, "Ok")
 
@@ -1090,15 +1093,15 @@ func TestLookupImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localOpts := make(map[string]interface{})
+	localOpts := anchore.ListImagesOpts{}
 
 	var calls = [][]string{{"docker.io/alpine:latest", "analyzed"}, {"docker.io/alpine:3.8", "notfound"}}
 	var result string
 
 	for _, item := range calls {
 		t.Log(fmt.Sprintf("Checking %s", item))
-		localOpts["fulltag"] = item[0]
-		imageListing, _, err := client.AnchoreEngineApi.ListImages(authCtx, localOpts)
+		localOpts.Fulltag = optional.NewString(item[0])
+		imageListing, _, err := client.ImagesApi.ListImages(authCtx, &localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
 				t.Log("Expected error response from server: ", err)
@@ -1128,6 +1131,7 @@ Test the CheckImage function against some fake responses
 */
 func TestCheckImage(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/images/goodfail/check":
 			fmt.Fprintln(w, GoodFailResponse)
@@ -1144,7 +1148,6 @@ func TestCheckImage(t *testing.T) {
 		}
 	}))
 
-
 	defer ts.Close()
 
 	t.Log(fmt.Sprintf("URL: %s", ts.URL))
@@ -1155,7 +1158,7 @@ func TestCheckImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localOpts := make(map[string]interface{})
+	localOpts := anchore.GetImagePolicyCheckOpts{}
 
 	var calls = [][]string{{"goodpass", "pass"}, {"goodfail", "fail"}, {"imagenotfound", "notfound"}, {"policynotfound", "notfound"}}
 	var result string
@@ -1163,7 +1166,7 @@ func TestCheckImage(t *testing.T) {
 	for _, item := range calls {
 
 		t.Log(fmt.Sprintf("Checking %s", item))
-		policyEvaluations, _, err := client.AnchoreEngineApi.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", localOpts)
+		policyEvaluations, _, err := client.ImagesApi.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", &localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
 				t.Log("Expected error response from server: ", err)
