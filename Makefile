@@ -66,6 +66,8 @@ define generate_openapi_client
 	-o /local/${3}
 	@ if [[ "$$OSTYPE" == "linux-gnu" ]]; then sudo chown -R $(shell id -u):$(shell id -g) ${3}; fi
 	rm ${3}/{.travis.yml,git_push.sh,go.*}
+	sed -i -- 's/ ImageSource/ *ImageSource/' ${3}/model_image_analysis_request.go
+	rm ${3}/model_image_analysis_request.go--
 endef
 
 pkg/anchore/swagger.yaml:

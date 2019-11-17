@@ -27,5 +27,5 @@ type ImageAnalysisRequest struct {
 	ImageType string `json:"image_type,omitempty"`
 	// Annotations to be associated with the added image in key/value form
 	Annotations map[string]interface{} `json:"annotations,omitempty"`
-	Source ImageSource `json:"source,omitempty"`
+	Source *ImageSource `json:"source,omitempty"`
 }
