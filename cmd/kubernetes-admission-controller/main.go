@@ -20,32 +20,34 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
-	"github.com/fsnotify/fsnotify"
-	"k8s.io/klog"
-	"github.com/spf13/viper"
+	"os"
 	"reflect"
+	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
+	"github.com/antihax/optional"
+	"github.com/fsnotify/fsnotify"
 	"github.com/openshift/generic-admission-server/pkg/cmd"
+	"github.com/spf13/viper"
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"os"
-	"regexp"
-	"sort"
-	"sync"
+	"k8s.io/klog"
 )
 
 var authVpr *viper.Viper
 var confVpr *viper.Viper
 var config ControllerConfiguration
 var authConfig AnchoreAuthConfig
+
 //var log logr.Logger
 
 var clientset *kubernetes.Clientset
@@ -177,7 +179,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 	klog.Info("Handling a Pod validation")
 	err = json.Unmarshal(admissionSpec.Object.Raw, &pod)
 	if err != nil {
-		klog.Error( "Could not parse the pod spec err=", err)
+		klog.Error("Could not parse the pod spec err=", err)
 		status.Allowed = false
 		status.Result.Status = metav1.StatusFailure
 		status.Result.Reason = "Error parsing admission request pod spec"
@@ -233,7 +235,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 				}
 			}
 
-			if ! matched {
+			if !matched {
 				// No rule matched, so skip this image
 				klog.Info("No selector match found")
 				break
@@ -253,7 +255,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			if mode == PolicyGateMode {
 				if anchoreClient == nil || authCtx == nil || policyRef == nil {
-					klog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					klog.Error("No valid policy reference with valid credentials found. Failing validation")
 					status.Allowed = false
 					status.Result.Status = metav1.StatusFailure
 					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
@@ -264,7 +266,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			} else if mode == AnalysisGateMode {
 				if anchoreClient == nil || authCtx == nil {
-					klog.Error( "No valid policy reference with valid credentials found. Failing validation")
+					klog.Error("No valid policy reference with valid credentials found. Failing validation")
 					status.Allowed = false
 					status.Result.Status = metav1.StatusFailure
 					status.Result.Reason = "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it"
@@ -299,7 +301,6 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 				klog.Info("Skipping analysis request")
 			}
 
-
 			if !status.Allowed {
 				status.Result.Status = metav1.StatusFailure
 				if err != nil && status.Result.Message == "" {
@@ -310,7 +311,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 			}
 		}
 	} else {
-		klog.Info( "No container specs to validate")
+		klog.Info("No container specs to validate")
 	}
 
 	klog.Info("Returning status=", status)
@@ -323,7 +324,7 @@ func passiveValidate(image string, client *anchore.APIClient, authCtx context.Co
 
 	imgObj, err := AnalyzeImage(image, client, authCtx)
 	if err != nil {
-		klog.Error( "Error from analysis request err=", err)
+		klog.Error("Error from analysis request err=", err)
 		return true, "Allowed but could not request analysis due to error", nil
 	}
 
@@ -382,22 +383,20 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
 
 */
 func AnalyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
-	var annotations interface{}
 
-	annotations = map[string]string{
-		"requestor": "anchore-admission-controller",
-	}
+	annotations := make(map[string]interface{})
+	annotations["requestor"] = "anchore-admission-controller"
 
-	opts := map[string]interface{}{}
-	opts["autosubscribe"] = false
+	opts := anchore.AddImageOpts{}
+	opts.Autosubscribe = optional.NewBool(false)
 
 	req := anchore.ImageAnalysisRequest{
 		Tag:         imageRef,
-		Annotations: &annotations,
+		Annotations: annotations,
 		CreatedAt:   time.Now().UTC().Round(time.Second),
 	}
 
-	imageList, _, err := client.AnchoreEngineApi.AddImage(authCtx, req, opts)
+	imageList, _, err := client.ImagesApi.AddImage(authCtx, req, &opts)
 
 	if err != nil {
 		return anchore.AnchoreImage{}, err
@@ -423,18 +422,18 @@ func IsImageAnalyzed(imageRef string, optionalDigest string, client *anchore.API
 }
 
 func lookupImage(imageRef string, optionalDigest string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
-	localOptions := make(map[string]interface{})
-	localOptions["fulltag"] = imageRef
+	localOptions := anchore.ListImagesOpts{}
+	localOptions.Fulltag = optional.NewString(imageRef)
 	klog.Info("Getting image from anchore engine. Reference=", imageRef)
-	var images anchore.AnchoreImageList
+	var images []anchore.AnchoreImage
 	var err error
 
 	if optionalDigest != "" {
 		// Direct lookup with digest
-		images, _, err = client.AnchoreEngineApi.GetImage(authCtx, optionalDigest)
+		images, _, err = client.ImagesApi.GetImage(authCtx, optionalDigest, &anchore.GetImageOpts{})
 	} else {
 		// Find latest image with tag
-		images, _, err = client.AnchoreEngineApi.ListImages(authCtx, localOptions)
+		images, _, err = client.ImagesApi.ListImages(authCtx, &localOptions)
 	}
 
 	if err != nil {
@@ -467,13 +466,13 @@ func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string,
 		digest = optionalDigest
 	}
 
-	localOptions := make(map[string]interface{})
-	localOptions["interactive"] = true
+	localOptions := anchore.GetImagePolicyCheckOpts{}
+	localOptions.Interactive = optional.NewBool(true)
 	if optionalPolicyId != "" {
-		localOptions["policyId"] = optionalPolicyId
+		localOptions.PolicyId = optional.NewString(optionalPolicyId)
 	}
 
-	evaluations, _, chkErr := client.AnchoreEngineApi.GetImagePolicyCheck(authCtx, digest, imageRef, localOptions)
+	evaluations, _, chkErr := client.ImagesApi.GetImagePolicyCheck(authCtx, digest, imageRef, &localOptions)
 	if chkErr != nil {
 		return false, digest, chkErr
 	}
@@ -487,12 +486,19 @@ func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string,
 
 }
 
-func findResult(parsed_result map[string]map[string][]map[string]interface{}) string {
-	//Looks thru a parsed result for the status value, assumes this result is for a single image
+func findResult(parsed_result map[string]interface{}) string {
+	// Looks thru a parsed result for the status value, assumes this result is for a single image
 	digest := reflect.ValueOf(parsed_result).MapKeys()[0].String()
-	tag := reflect.ValueOf(parsed_result[digest]).MapKeys()[0].String()
-	status := parsed_result[digest][tag][0]["status"]
-	return fmt.Sprintf("%s", status)
+	tag := reflect.ValueOf(parsed_result[digest]).MapKeys()[0]
+	result := reflect.ValueOf(reflect.ValueOf(parsed_result[digest]).MapIndex(tag).Interface()).Index(0).Elem()
+	for _, key := range result.MapKeys() {
+		if key.Interface() == "status" {
+			status := result.MapIndex(key)
+			return fmt.Sprintf("%s", status)
+		}
+	}
+
+	return fmt.Sprintf("%s", "failed to get status")
 }
 
 func initClient(username string, password string, endpoint string) (*anchore.APIClient, context.Context, error) {
@@ -513,11 +519,11 @@ func updateConfig(in fsnotify.Event) {
 	klog.Info("Detected update event to the configuration file. Will reload")
 	err := confVpr.ReadInConfig()
 	if err != nil {
-		klog.Error( "Error updating configuration. err=", err)
+		klog.Error("Error updating configuration. err=", err)
 	}
 	err = confVpr.Unmarshal(&config)
 	if err != nil {
-		klog.Error( "Error updating configuration. err=", err)
+		klog.Error("Error updating configuration. err=", err)
 	}
 }
 
@@ -525,11 +531,11 @@ func updateAuthConfig(in fsnotify.Event) {
 	klog.Info("Detected update event to the configuration file. Will reload")
 	err := authVpr.ReadInConfig()
 	if err != nil {
-		klog.Error( "Error updating auth configuration. err=", err)
+		klog.Error("Error updating auth configuration. err=", err)
 	}
 	err = authVpr.Unmarshal(&authConfig)
 	if err != nil {
-		klog.Error( "Error updating auth configuration. err=", err)
+		klog.Error("Error updating auth configuration. err=", err)
 	}
 }
 

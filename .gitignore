@@ -13,11 +13,14 @@
 
 # IDEs/Editors
 .idea
+.vscode
 
 # Soft-link for connecting charts if present
 skaffold-helm
 
 # Files used for testing in place
 validating-webhook.yaml
-anchore-admission-controller
 
+anchore-admission-controller
+build
+pkg/anchore/**/docs

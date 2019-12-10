@@ -6,6 +6,7 @@ require (
 	github.com/NYTimes/gziphandler v0.0.0-20170623195520-56545f4a5d46
 	github.com/PuerkitoBio/purell v1.1.0
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578
+	github.com/antihax/optional v0.0.0-20180407024304-ca021399b1a6
 	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973
 	github.com/coreos/etcd v3.3.10+incompatible
 	github.com/coreos/go-systemd v0.0.0-20180511133405-39ca1b05acc7
