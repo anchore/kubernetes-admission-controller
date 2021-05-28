@@ -34,6 +34,7 @@ import (
 	"github.com/openshift/generic-admission-server/pkg/cmd"
 	"github.com/spf13/viper"
 	admissionv1beta1 "k8s.io/api/admission/v1beta1"
+	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -62,6 +63,46 @@ const (
 	credsConfigFilePathEnvVar string = "CREDENTIALS_FILE_PATH"
 	configFilePathEnvVar      string = "CONFIG_FILE_PATH"
 )
+
+// The handler map to route based on the admission kind
+var resourceHandlers = map[string]func(*admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error){
+	metav1.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "Pod",
+	}.String(): podHandler,
+	metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "Deployment",
+	}.String(): deploymentPodExtractor,
+}
+
+/*
+Get the PodSpecs and ObjectMeta from a Pod resource
+*/
+func podHandler(admissionRequest *admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
+	//klog.Info("Handling a Pod validation")
+	var pod v1.Pod
+	err := json.Unmarshal(admissionRequest.Object.Raw, &pod)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &pod.ObjectMeta, []*v1.PodSpec{&pod.Spec}, nil
+}
+
+/*
+Get the PodSpecs and ObjectMeta from a Deployment resource
+*/
+func deploymentPodExtractor(admissionRequest *admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
+	// Extracts pod specs from the deployment resource
+	var deployment appsV1.Deployment
+	err := json.Unmarshal(admissionRequest.Object.Raw, &deployment)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &deployment.ObjectMeta, []*v1.PodSpec{&deployment.Spec.Template.Spec}, nil
+}
 
 /*
   Match any object metadata to the selector
@@ -118,14 +159,13 @@ func matchImageResource(regex string, img string) (bool, error) {
 /*
   Get the correct set of ObjectMeta for comparison, or nil if not a selector that uses ObjectMeta
 */
-func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMeta, error) {
+func resolveResource(selector *ResourceSelector, objMetadata *metav1.ObjectMeta) (*metav1.ObjectMeta, error) {
 	klog.Info("Resolving the resource to use for selection")
-
 	switch selector.ResourceType {
-	case PodSelectorType:
-		return &pod.ObjectMeta, nil
+	case ResourceSelectorType:
+		return objMetadata, nil
 	case NamespaceSelectorType:
-		nsFound, err := clientset.CoreV1().Namespaces().Get(pod.Namespace, metav1.GetOptions{})
+		nsFound, err := clientset.CoreV1().Namespaces().Get(objMetadata.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		} else {
@@ -140,7 +180,6 @@ func resolveResource(selector *ResourceSelector, pod *v1.Pod) (*metav1.ObjectMet
 
 func (a *admissionHook) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
 	klog.Info("Initializing handler")
-
 	return nil
 }
 
@@ -153,9 +192,8 @@ func (a *admissionHook) ValidatingResource() (plural schema.GroupVersionResource
 
 }
 
-func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionRequest) *admissionv1beta1.AdmissionResponse {
+func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionRequest) *admissionv1beta1.AdmissionResponse {
 	var err error
-	var pod v1.Pod
 	var containers []v1.Container
 	var anchoreClient *anchore.APIClient
 	var authCtx context.Context
@@ -167,25 +205,47 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 	status := &admissionv1beta1.AdmissionResponse{
 		Allowed: true,
-		UID:     admissionSpec.UID,
+		UID:     admissionRequest.UID,
 		Result:  &metav1.Status{Status: metav1.StatusSuccess, Message: ""}}
 
 	// Handle higher-level types as well as pods, helps make error messages cleaner
-	if strings.ToLower(admissionSpec.Kind.Kind) != "pod" {
-		klog.Info("Non-pod validation requested. No validation to do")
+	handler, _ := resourceHandlers[admissionRequest.Kind.String()]
+	if handler == nil {
+		klog.Error("unsupported admission request kind ", admissionRequest.Kind.Kind)
 		return status
 	}
 
-	klog.Info("Handling a Pod validation")
-	err = json.Unmarshal(admissionSpec.Object.Raw, &pod)
+	// Use the handler to get podSpec from the appropriate resource handler
+	objectMeta, podSpecs, err := handler(admissionRequest)
 	if err != nil {
-		klog.Error("Could not parse the pod spec err=", err)
+		klog.Error("could not handle the admission request err=", err)
 		status.Allowed = false
 		status.Result.Status = metav1.StatusFailure
-		status.Result.Reason = "Error parsing admission request pod spec"
+		status.Result.Reason = "Error parsing admission request to extract object kind and metadata"
 		return status
 	}
-	containers = pod.Spec.Containers
+
+	//klog.Info("Handling a Pod validation")
+	//err = json.Unmarshal(admissionRequest.Object.Raw, &pod)
+	//if err != nil {
+	//	klog.Error("Could not parse the pod spec err=", err)
+	//	status.Allowed = false
+	//	status.Result.Status = metav1.StatusFailure
+	//	status.Result.Reason = "Error parsing admission request pod spec"
+	//	return status
+	//}
+
+	if len(podSpecs) == 0 {
+		klog.Info("No pod spec found in resource. Nothing to validate")
+		status.Allowed = true
+		status.Result.Status = metav1.StatusSuccess
+		status.Result.Reason = "no pod spec or images found to validate"
+		return status
+	}
+
+	// TODO: this should be e loop to handle types with multiple pod specs
+	podSpec := podSpecs[0]
+	containers = podSpec.Containers
 
 	// Update the config to ensure we've got the latest
 	//config, _ := refreshConfig(confVpr)
@@ -201,7 +261,7 @@ func (a *admissionHook) Validate(admissionSpec *admissionv1beta1.AdmissionReques
 
 			for _, selector := range config.PolicySelectors {
 				klog.Info("Checking selector ", "selector=", selector)
-				meta, err := resolveResource(&selector.Selector, &pod)
+				meta, err := resolveResource(&selector.Selector, objectMeta)
 				if err != nil {
 					klog.Error("Error checking selector, skipping err=", err)
 					continue

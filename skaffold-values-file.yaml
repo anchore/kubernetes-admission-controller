@@ -17,7 +17,7 @@ policySelectors:
       PolicyBundleId: bundle1
     Mode: policy
   - Selector:
-      ResourceType: pod
+      ResourceType: resource
       SelectorKeyRegex: stage
       SelectorValueRegex: testing
     PolicyReference:

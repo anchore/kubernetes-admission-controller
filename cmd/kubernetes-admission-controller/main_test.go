@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	appsV1 "k8s.io/api/apps/v1"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,137 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+func AdmissionSpecPodFixture(image string) (*v1beta1.AdmissionRequest, error) {
+	// Valid image, passes policy
+	tpod := &v1.Pod{
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   image,
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+	if err != nil {
+		return nil, err
+	}
+
+	return &v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1.SchemeGroupVersion.Group, Version: v1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: v1.SchemeGroupVersion.Group, Version: v1.SchemeGroupVersion.Version, Resource: v1.ResourcePods.String()},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
+	}, nil
+}
+
+func AdmissionSpecDeploymentFixture(image string) (*v1beta1.AdmissionRequest, error) {
+	tdeploy := &appsV1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"key": "value",
+			},
+			Annotations: map[string]string{
+				"annotation1": "value1",
+			},
+			Name:      "a_pod",
+			Namespace: "namespace1",
+		},
+		Spec: appsV1.DeploymentSpec{
+			Template: v1.PodTemplateSpec{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:    "Container1",
+							Image:   image,
+							Command: []string{"bin/bash", "bin"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	marshalledDeployment, err := json.Marshal(tdeploy)
+	if err != nil {
+		return nil, err
+	}
+
+	return &v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Kind: "Deployment"},
+		Resource:    metav1.GroupVersionResource{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Resource: "deployments"},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledDeployment},
+	}, nil
+
+}
+
+//Setup test service for returning API responses
+func fakeServerFixture(image string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodPassResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/" + image:
+				fmt.Fprintln(w, ImageLookup)
+			case image:
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/" + image + ":latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+}
+
+//Setup test service for returning API responses
+func fakeServerFixtureImageFail(image string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/images" {
+			switch r.URL.Path {
+			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+				fmt.Fprintln(w, GoodFailResponse)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageNotFound)
+			}
+		} else {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/" + image:
+				fmt.Fprintln(w, ImageLookup)
+			case image:
+				fmt.Fprintln(w, ImageLookup)
+			case "docker.io/" + image + ":latest":
+				fmt.Fprintln(w, ImageLookup)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, ImageLookupError)
+			}
+		}
+	}))
+}
 
 func TestConfigUpdate(t *testing.T) {
 	//t.Skip("Disabled since it modifies local fs state")
@@ -228,7 +360,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	meta = metav1.ObjectMeta{Labels: labels, Annotations: annotations}
 
 	// Match anything
-	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -238,7 +370,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	}
 
 	// Match Labels
-	selector = ResourceSelector{PodSelectorType, "label.*", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "label.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -247,7 +379,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "^label$", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "^label$", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if found || err != nil {
 		t.Fatal("Incorrectly matched")
@@ -256,7 +388,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Did not match, correctly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "label", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "label", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -265,7 +397,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "labelowner", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -274,7 +406,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "labelowner", "lsometeam"}
+	selector = ResourceSelector{ResourceSelectorType, "labelowner", "lsometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -283,7 +415,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "labelowner", "lsome"}
+	selector = ResourceSelector{ResourceSelectorType, "labelowner", "lsome"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -292,7 +424,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, ".*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -302,7 +434,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	}
 
 	// Match annotations
-	selector = ResourceSelector{PodSelectorType, "annotation.*", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "annotation.*", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -311,7 +443,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched all properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "annotationowner", "asometeam"}
+	selector = ResourceSelector{ResourceSelectorType, "annotationowner", "asometeam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -321,7 +453,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 	}
 
 	// Correctly fail to match
-	selector = ResourceSelector{PodSelectorType, "own", ".*team"}
+	selector = ResourceSelector{ResourceSelectorType, "own", ".*team"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Fatal("Failed to match")
@@ -330,7 +462,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 		t.Log("Matched prefix properly")
 	}
 
-	selector = ResourceSelector{PodSelectorType, "notfound", ".*"}
+	selector = ResourceSelector{ResourceSelectorType, "notfound", ".*"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Log("Correctly failed to match")
@@ -339,7 +471,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	}
 
-	selector = ResourceSelector{PodSelectorType, ".*", "anotherteam"}
+	selector = ResourceSelector{ResourceSelectorType, ".*", "anotherteam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Log("Correctly failed to match")
@@ -348,7 +480,7 @@ func TestMatchObjectMetadata(t *testing.T) {
 
 	}
 
-	selector = ResourceSelector{PodSelectorType, "owner", "anotherteam"}
+	selector = ResourceSelector{ResourceSelectorType, "owner", "anotherteam"}
 	found, err = matchObjMetadata(&selector, &meta)
 	if !found || err != nil {
 		t.Log("Correctly failed to match")
@@ -410,53 +542,10 @@ func TestMatchImageRef(t *testing.T) {
 }
 
 func TestValidatePolicyOk(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := fakeServerFixture("alpine")
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling pod spec")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -466,21 +555,13 @@ func TestValidatePolicyOk(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
+	admSpec, err := AdmissionSpecPodFixture("alpine")
+	assert.True(t, err == nil)
 
-	resp := adm.Validate(&admSpec)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -491,53 +572,11 @@ func TestValidatePolicyOk(t *testing.T) {
 }
 
 func TestValidatePolicyFail(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodFailResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
+	ts := fakeServerFixtureImageFail("alpine")
 
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -547,21 +586,13 @@ func TestValidatePolicyFail(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
+	admSpec, err := AdmissionSpecPodFixture("alpine")
+	assert.True(t, err == nil)
 
-	resp := adm.Validate(&admSpec)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -572,52 +603,10 @@ func TestValidatePolicyFail(t *testing.T) {
 }
 
 func TestValidatePolicyNotFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := fakeServerFixture("alpine")
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -627,21 +616,13 @@ func TestValidatePolicyNotFound(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
+	admSpec, err := AdmissionSpecPodFixture("ubuntu")
+	assert.True(t, err == nil)
 
-	resp := adm.Validate(&admSpec)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -652,53 +633,10 @@ func TestValidatePolicyNotFound(t *testing.T) {
 }
 
 func TestValidateAnalyzedOk(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := fakeServerFixture("alpine")
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -708,21 +646,13 @@ func TestValidateAnalyzedOk(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
+	admSpec, err := AdmissionSpecPodFixture("alpine")
+	assert.True(t, err == nil)
 
-	resp := adm.Validate(&admSpec)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -733,52 +663,10 @@ func TestValidateAnalyzedOk(t *testing.T) {
 }
 
 func TestValidateAnalyzedFail(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := fakeServerFixture("alpine")
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -788,21 +676,13 @@ func TestValidateAnalyzedFail(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
+	admSpec, err := AdmissionSpecPodFixture("ubuntu")
+	assert.True(t, err == nil)
 
-	resp := adm.Validate(&admSpec)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -813,52 +693,11 @@ func TestValidateAnalyzedFail(t *testing.T) {
 }
 
 func TestValidatePassiveFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
+	ts := fakeServerFixture("alpine")
 
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -868,21 +707,12 @@ func TestValidatePassiveFound(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
+	admSpec, err := AdmissionSpecPodFixture("alpine")
+	assert.True(t, err == nil)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -893,52 +723,10 @@ func TestValidatePassiveFound(t *testing.T) {
 }
 
 func TestValidatePassiveNotFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := fakeServerFixture("alpine")
 	defer ts.Close()
 
 	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
 
 	testConf := ControllerConfiguration{
 		ValidatorConfiguration{true, true},
@@ -948,21 +736,12 @@ func TestValidatePassiveNotFound(t *testing.T) {
 
 	config = testConf
 	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
+		[]AnchoreCredential{{"admin", "password"}},
 	}
 
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
+	admSpec, err := AdmissionSpecPodFixture("ubuntu")
+	assert.True(t, err == nil)
+	resp := adm.Validate(admSpec)
 
 	obj, err := json.Marshal(resp)
 	if err == nil {
@@ -1185,4 +964,101 @@ func TestCheckImage(t *testing.T) {
 		}
 	}
 
+}
+
+func TestHandlePod(t *testing.T) {
+	tpod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"key": "value",
+			},
+			Annotations: map[string]string{
+				"annotation1": "value1",
+			},
+			Name:      "a_pod",
+			Namespace: "namespace1",
+		},
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "ubuntu",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+	if err != nil {
+		t.Fatal("Failed marshalling")
+	}
+
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	meta, podSpecs, err := podHandler(&admSpec)
+	assert.True(t, meta != nil)
+	assert.True(t, podSpecs[0].Containers[0].Name == tpod.Spec.Containers[0].Name)
+
+}
+
+func TestHandleDeployment(t *testing.T) {
+	// Tests receiving  Deployment to validate and extracting the podspecs
+	tdeploy := &appsV1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"key": "value",
+			},
+			Annotations: map[string]string{
+				"annotation1": "value1",
+			},
+			Name:      "a_pod",
+			Namespace: "namespace1",
+		},
+		Spec: appsV1.DeploymentSpec{
+			Template: v1.PodTemplateSpec{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:    "Container1",
+							Image:   "ubuntu",
+							Command: []string{"bin/bash", "bin"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	marshalledDeployment, err := json.Marshal(tdeploy)
+	if err != nil {
+		t.Fatal("Failed marshalling")
+	}
+
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Kind: "Deployment"},
+		Resource:    metav1.GroupVersionResource{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Resource: "deployments"},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledDeployment},
+	}
+
+	metas, podSpecs, err := deploymentPodExtractor(&admSpec)
+	assert.Nil(t, err, err)
+	assert.NotNil(t, metas, "metas nil")
+	assert.True(t, len(podSpecs) > 0, "pod spec zero length")
+	assert.NotNil(t, podSpecs[0].Containers, "no containers section")
+	assert.True(t, len(podSpecs[0].Containers) > 0, "no containers in pod spec")
+	assert.Equal(t, podSpecs[0].Containers[0].Name, tdeploy.Spec.Template.Spec.Containers[0].Name, "name mismatch for containers")
 }

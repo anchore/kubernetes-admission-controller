@@ -49,12 +49,12 @@ type SelectorResourceType string
 type GateModeType string
 
 const (
-	PodSelectorType       SelectorResourceType = "pod"
+	ResourceSelectorType  SelectorResourceType = "resource"
 	NamespaceSelectorType SelectorResourceType = "namespace"
 	ImageSelectorType     SelectorResourceType = "image"
-	PolicyGateMode        GateModeType = "policy"
-	AnalysisGateMode      GateModeType = "analysis"
-	BreakGlassMode        GateModeType = "breakglass"
+	PolicyGateMode        GateModeType         = "policy"
+	AnalysisGateMode      GateModeType         = "analysis"
+	BreakGlassMode        GateModeType         = "breakglass"
 )
 
 
