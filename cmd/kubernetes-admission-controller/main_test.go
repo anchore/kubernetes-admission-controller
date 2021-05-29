@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	appsV1 "k8s.io/api/apps/v1"
+
 	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
 	"github.com/antihax/optional"
 	"github.com/fsnotify/fsnotify"
@@ -484,8 +486,9 @@ func mockAdmissionRequest(t *testing.T, requestedObject interface{}) v1beta1.Adm
 	}
 
 	return v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		UID: "abc123",
+		Kind: metav1.GroupVersionKind{Group: v1.GroupName, Version: v1.SchemeGroupVersion.Version,
+			Kind: "Pod"},
 		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
 		Name:        "somename",
@@ -573,7 +576,7 @@ const goodFailResponse = `
 `
 
 const imageNotFound = `
-{  
+{
   "message": "could not get image record from anchore"
 }
 `
@@ -769,4 +772,100 @@ func TestCheckImage(t *testing.T) {
 		}
 	}
 
+}
+
+func TestHandlePod(t *testing.T) {
+	tpod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"key": "value",
+			},
+			Annotations: map[string]string{
+				"annotation1": "value1",
+			},
+			Name:      "a_pod",
+			Namespace: "namespace1",
+		},
+		Spec: v1.PodSpec{Containers: []v1.Container{
+			{
+				Name:    "Container1",
+				Image:   "ubuntu",
+				Command: []string{"bin/bash", "bin"},
+			},
+		},
+		},
+	}
+
+	marshalledPod, err := json.Marshal(tpod)
+	if err != nil {
+		t.Fatal("Failed marshalling")
+	}
+
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
+		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledPod},
+	}
+
+	meta, podSpecs, err := podHandler(&admSpec)
+	assert.True(t, meta != nil)
+	assert.True(t, podSpecs[0].Containers[0].Name == tpod.Spec.Containers[0].Name)
+}
+
+func TestHandleDeployment(t *testing.T) {
+	// Tests receiving  Deployment to validate and extracting the podspecs
+	tdeploy := &appsV1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"key": "value",
+			},
+			Annotations: map[string]string{
+				"annotation1": "value1",
+			},
+			Name:      "a_pod",
+			Namespace: "namespace1",
+		},
+		Spec: appsV1.DeploymentSpec{
+			Template: v1.PodTemplateSpec{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:    "Container1",
+							Image:   "ubuntu",
+							Command: []string{"bin/bash", "bin"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	marshalledDeployment, err := json.Marshal(tdeploy)
+	if err != nil {
+		t.Fatal("Failed marshalling")
+	}
+
+	admSpec := v1beta1.AdmissionRequest{
+		UID:         "abc123",
+		Kind:        metav1.GroupVersionKind{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Kind: "Deployment"},
+		Resource:    metav1.GroupVersionResource{Group: appsV1.SchemeGroupVersion.Group, Version: appsV1.SchemeGroupVersion.Version, Resource: "deployments"},
+		SubResource: "someresource",
+		Name:        "somename",
+		Namespace:   "default",
+		Operation:   "CREATE",
+		Object:      runtime.RawExtension{Raw: marshalledDeployment},
+	}
+
+	metas, podSpecs, err := deploymentPodExtractor(&admSpec)
+	assert.Nil(t, err, err)
+	assert.NotNil(t, metas, "metas nil")
+	assert.True(t, len(podSpecs) > 0, "pod spec zero length")
+	assert.NotNil(t, podSpecs[0].Containers, "no containers section")
+	assert.True(t, len(podSpecs[0].Containers) > 0, "no containers in pod spec")
+	assert.Equal(t, podSpecs[0].Containers[0].Name, tdeploy.Spec.Template.Spec.Containers[0].Name, "name mismatch for containers")
 }
