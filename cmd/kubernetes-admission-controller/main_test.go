@@ -410,32 +410,7 @@ func TestMatchImageRef(t *testing.T) {
 }
 
 func TestValidatePolicyOk(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -491,31 +466,7 @@ func TestValidatePolicyOk(t *testing.T) {
 }
 
 func TestValidatePolicyFail(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodFailResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -525,7 +476,7 @@ func TestValidatePolicyFail(t *testing.T) {
 		Spec: v1.PodSpec{Containers: []v1.Container{
 			{
 				Name:    "Container1",
-				Image:   "alpine",
+				Image:   "bad-alpine",
 				Command: []string{"bin/bash", "bin"},
 			},
 		},
@@ -568,35 +519,11 @@ func TestValidatePolicyFail(t *testing.T) {
 		fmt.Println(string(obj[:]))
 	}
 
-	assert.True(t, !resp.Allowed)
+	assert.False(t, resp.Allowed)
 }
 
 func TestValidatePolicyNotFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -652,32 +579,7 @@ func TestValidatePolicyNotFound(t *testing.T) {
 }
 
 func TestValidateAnalyzedOk(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -733,31 +635,7 @@ func TestValidateAnalyzedOk(t *testing.T) {
 }
 
 func TestValidateAnalyzedFail(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -813,31 +691,7 @@ func TestValidateAnalyzedFail(t *testing.T) {
 }
 
 func TestValidatePassiveFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -893,31 +747,7 @@ func TestValidatePassiveFound(t *testing.T) {
 }
 
 func TestValidatePassiveNotFound(t *testing.T) {
-	//Setup test service
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/images" {
-			switch r.URL.Path {
-			case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-				fmt.Fprintln(w, GoodPassResponse)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageNotFound)
-			}
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "alpine":
-				fmt.Fprintln(w, ImageLookup)
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
-			}
-		}
-	}))
-
+	ts := createTestService()
 	defer ts.Close()
 
 	adm := admissionHook{}
@@ -972,7 +802,42 @@ func TestValidatePassiveNotFound(t *testing.T) {
 	assert.True(t, resp.Allowed)
 }
 
-var GoodPassResponse = `
+func createTestService() *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/images" {
+			switch r.URL.Query().Get("fulltag") {
+			case "docker.io/alpine:latest", "docker.io/alpine", "alpine":
+				fmt.Fprintln(w, AlpineImageLookup)
+				return
+			case "docker.io/bad-alpine:latest", "docker.io/bad-alpine", "bad-alpine":
+				fmt.Fprintln(w, BadAlpineImageLookup)
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, ImageLookupError)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+			fmt.Fprintln(w, GoodPassResponse)
+			return
+		case "/images/sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
+			fmt.Fprintln(w, GoodFailResponse)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, ImageNotFound)
+	}))
+
+	return ts
+}
+
+const GoodPassResponse = `
 [
   {
     "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
@@ -988,7 +853,8 @@ var GoodPassResponse = `
   }
 ]
 `
-var GoodFailResponse = `
+
+const GoodFailResponse = `
 [
   {
     "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
@@ -1005,21 +871,13 @@ var GoodFailResponse = `
 ]
 `
 
-var ImageNotFound = `
+const ImageNotFound = `
 {  
   "message": "could not get image record from anchore"
 }
 `
 
-var PolicyNotFound = `
-{
-    "detail": {},
-    "httpcode": 404,
-    "message": "Policy bundle notreal not found in DB"
-}
-`
-
-var ImageLookup = `
+const AlpineImageLookup = `
 [
   {
     "analysis_status": "analyzed",
@@ -1063,7 +921,51 @@ var ImageLookup = `
 ]
 `
 
-var ImageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
+const BadAlpineImageLookup = `
+[
+  {
+    "analysis_status": "analyzed",
+    "analyzed_at": "2018-12-03T18:24:54Z",
+    "annotations": {},
+    "created_at": "2018-12-03T18:24:43Z",
+    "imageDigest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+    "image_content": {
+      "metadata": {
+        "arch": "amd64",
+        "distro": "alpine",
+        "distro_version": "3.8.1",
+        "dockerfile_mode": "Guessed",
+        "image_size": 2206931,
+        "layer_count": 1
+      }
+    },
+    "image_detail": [
+      {
+        "created_at": "2018-12-03T18:24:43Z",
+        "digest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+        "dockerfile": "RlJPTSBzY3JhdGNoCkFERCBmaWxlOjI1YzEwYjFkMWI0MWQ0NmExODI3YWQwYjBkMjM4OWMyNGRmNmQzMTQzMDAwNWZmNGU5YTJkODRlYTIzZWJkNDIgaW4gLyAKQ01EIFsiL2Jpbi9zaCJdCg==",
+        "fulldigest": "docker.io/bad-alpine@sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+        "fulltag": "docker.io/bad-alpine:latest",
+        "imageDigest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+        "imageId": "196d12cf6ab19273823e700516e98eb1910b03b17840f9d5509f03858484d321",
+        "last_updated": "2018-12-03T18:24:54Z",
+        "registry": "docker.io",
+        "repo": "bad-alpine",
+        "tag": "latest",
+        "tag_detected_at": "2018-12-03T18:24:43Z",
+        "userId": "admin"
+      }
+    ],
+    "image_status": "active",
+    "image_type": "docker",
+    "last_updated": "2018-12-03T18:24:54Z",
+    "parentDigest": "sha256:621c2f39f8133acb8e64023a94dbdf0d5ca81896102b9e57c0dc184cadaf5528",
+    "userId": "admin"
+  }
+]
+`
+
+const ImageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
 
 func TestLookupImage(t *testing.T) {
 	t.Log("Testing image lookup handling")
@@ -1075,7 +977,7 @@ func TestLookupImage(t *testing.T) {
 		} else {
 			switch r.URL.Query().Get("fulltag") {
 			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, ImageLookup)
+				fmt.Fprintln(w, AlpineImageLookup)
 			default:
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, ImageLookupError)
