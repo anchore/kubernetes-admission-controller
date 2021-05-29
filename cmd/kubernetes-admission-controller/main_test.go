@@ -201,18 +201,7 @@ func TestConfig(t *testing.T) {
 
 }
 
-func TestMatchObjectMetadata(t *testing.T) {
-	//_, logErr := initLogger()
-	//if logErr != nil {
-	//	fmt.Println("Failed to initialize logging: ", logErr)
-	//
-	//}
-
-	var meta metav1.ObjectMeta
-	var selector ResourceSelector
-	var err error
-	var found bool
-
+func testMetadata() metav1.ObjectMeta {
 	labels := map[string]string{
 		"labelkey":   "lvalue",
 		"labelkey2":  "lvalue2",
@@ -225,187 +214,150 @@ func TestMatchObjectMetadata(t *testing.T) {
 		"annotationowner": "asometeam",
 	}
 
-	meta = metav1.ObjectMeta{Labels: labels, Annotations: annotations}
-
-	// Match anything
-	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	// Match Labels
-	selector = ResourceSelector{PodSelectorType, "label.*", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "^label$", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if found || err != nil {
-		t.Fatal("Incorrectly matched")
-
-	} else {
-		t.Log("Did not match, correctly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "label", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "labelowner", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "labelowner", "lsometeam"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "labelowner", "lsome"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, ".*", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	// Match annotations
-	selector = ResourceSelector{PodSelectorType, "annotation.*", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "annotationowner", "asometeam"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched all properly")
-	}
-
-	// Correctly fail to match
-	selector = ResourceSelector{PodSelectorType, "own", ".*team"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched prefix properly")
-	}
-
-	selector = ResourceSelector{PodSelectorType, "notfound", ".*"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Log("Correctly failed to match")
-	} else {
-		t.Log("Incorrectly matched")
-
-	}
-
-	selector = ResourceSelector{PodSelectorType, ".*", "anotherteam"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Log("Correctly failed to match")
-	} else {
-		t.Log("Incorrectly matched")
-
-	}
-
-	selector = ResourceSelector{PodSelectorType, "owner", "anotherteam"}
-	found, err = matchObjMetadata(&selector, &meta)
-	if !found || err != nil {
-		t.Log("Correctly failed to match")
-	} else {
-		t.Log("Incorrectly matched")
-
-	}
-
-	// Match image
-	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
-	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
-	if found && err == nil {
-		t.Log("Correctly matched")
-	} else {
-		t.Log("Incorrectly failed to match")
-
-	}
-
-	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
-	found, err = matchImageResource(selector.SelectorValueRegex, "alpine:latest")
-	if found && err == nil {
-		t.Log("Correctly matched")
-	} else {
-		t.Log("Incorrectly failed to match")
-
-	}
-
-	selector = ResourceSelector{ImageSelectorType, ".*", ".*:latest"}
-	found, err = matchImageResource(selector.SelectorValueRegex, "debian:jessie")
-	if !found && err == nil {
-		t.Log("Correctly failed to match")
-	} else {
-		t.Log("Incorrectly matched or error")
-
-	}
-
+	return metav1.ObjectMeta{Labels: labels, Annotations: annotations}
 }
 
-func TestMatchImageRef(t *testing.T) {
-	var selector ResourceSelector
+func assertShouldMatch(t *testing.T, found bool, err error) {
+	t.Helper()
 
-	selector = ResourceSelector{ImageSelectorType, ".*", ".*"}
-	found, err := matchImageResource(selector.SelectorValueRegex, "alpine")
 	if !found || err != nil {
 		t.Fatal("Failed to match")
-
-	} else {
-		t.Log("Matched prefix properly")
 	}
 
-	selector = ResourceSelector{ImageSelectorType, "", "alpine"}
-	found, err = matchImageResource(selector.SelectorValueRegex, "alpine")
-	if !found || err != nil {
-		t.Fatal("Failed to match")
+	t.Log("Matched all properly")
+}
 
-	} else {
-		t.Log("Matched prefix properly")
+func assertShouldNotMatch(t *testing.T, found bool, err error) {
+	t.Helper()
+
+	if found || err != nil {
+		t.Fatal("Incorrectly matched")
+	}
+
+	t.Log("Correctly did not match")
+}
+
+func TestMatchObjMetadata(t *testing.T) {
+	testCases := []struct {
+		name      string
+		selector  ResourceSelector
+		assertion func(t *testing.T, found bool, err error)
+	}{
+		{
+			name:      "should match anything",
+			selector:  ResourceSelector{PodSelectorType, ".*", ".*"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'label.*'",
+			selector:  ResourceSelector{PodSelectorType, "label.*", ".*"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should NOT match key '^label$'",
+			selector:  ResourceSelector{PodSelectorType, "^label$", ".*"},
+			assertion: assertShouldNotMatch,
+		},
+		{
+			name:      "should match key 'label'",
+			selector:  ResourceSelector{PodSelectorType, "label", ".*"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'labelowner'",
+			selector:  ResourceSelector{PodSelectorType, "labelowner", ".*"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'labelowner' with value 'lsometeam'",
+			selector:  ResourceSelector{PodSelectorType, "labelowner", "lsometeam"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'labelowner' with value 'lsome'",
+			selector:  ResourceSelector{PodSelectorType, "labelowner", "lsome"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'annotation.*'",
+			selector:  ResourceSelector{PodSelectorType, "annotation.*", ".*"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'annotationowner' with value 'asometeam'",
+			selector:  ResourceSelector{PodSelectorType, "annotationowner", "asometeam"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should match key 'own' with value '.*team'",
+			selector:  ResourceSelector{PodSelectorType, "own", ".*team"},
+			assertion: assertShouldMatch,
+		},
+		{
+			name:      "should NOT match key 'notfound'",
+			selector:  ResourceSelector{PodSelectorType, "notfound", ".*"},
+			assertion: assertShouldNotMatch,
+		},
+		{
+			name:      "should NOT match value 'anotherteam'",
+			selector:  ResourceSelector{PodSelectorType, ".*", "anotherteam"},
+			assertion: assertShouldNotMatch,
+		},
+		{
+			name:      "should NOT match key 'owner' with value 'anotherteam'",
+			selector:  ResourceSelector{PodSelectorType, "owner", "anotherteam"},
+			assertion: assertShouldNotMatch,
+		},
+	}
+
+	metadata := testMetadata()
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			found, err := matchObjMetadata(&testCase.selector, &metadata)
+			testCase.assertion(t, found, err)
+		})
+	}
+}
+
+func TestMatchImageResource(t *testing.T) {
+	testCases := []struct {
+		name               string
+		selectorValueRegex string
+		image              string
+		assertion          func(t *testing.T, found bool, err error)
+	}{
+		{
+			name:               "match any image",
+			selectorValueRegex: ".*",
+			image:              "alpine",
+			assertion:          assertShouldMatch,
+		},
+		{
+			name:               "match image with same tag",
+			selectorValueRegex: ".*:latest",
+			image:              "alpine:latest",
+			assertion:          assertShouldMatch,
+		},
+		{
+			name:               "don't match image with different tag",
+			selectorValueRegex: ".*:latest",
+			image:              "debian:jessie",
+			assertion:          assertShouldNotMatch,
+		},
+		{
+			name:               "match image by exact name",
+			selectorValueRegex: "alpine",
+			image:              "alpine",
+			assertion:          assertShouldMatch,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			found, err := matchImageResource(testCase.selectorValueRegex, testCase.image)
+			testCase.assertion(t, found, err)
+		})
 	}
 }
 
