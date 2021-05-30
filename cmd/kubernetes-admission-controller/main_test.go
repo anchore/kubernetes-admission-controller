@@ -201,42 +201,6 @@ func TestConfig(t *testing.T) {
 
 }
 
-func testMetadata() metav1.ObjectMeta {
-	labels := map[string]string{
-		"labelkey":   "lvalue",
-		"labelkey2":  "lvalue2",
-		"labelowner": "lsometeam",
-	}
-
-	annotations := map[string]string{
-		"annotationkey":   "avalue",
-		"annotationkey2":  "avalue2",
-		"annotationowner": "asometeam",
-	}
-
-	return metav1.ObjectMeta{Labels: labels, Annotations: annotations}
-}
-
-func assertShouldMatch(t *testing.T, found bool, err error) {
-	t.Helper()
-
-	if !found || err != nil {
-		t.Fatal("Failed to match")
-	}
-
-	t.Log("Matched all properly")
-}
-
-func assertShouldNotMatch(t *testing.T, found bool, err error) {
-	t.Helper()
-
-	if found || err != nil {
-		t.Fatal("Incorrectly matched")
-	}
-
-	t.Log("Correctly did not match")
-}
-
 func TestMatchObjMetadata(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -361,42 +325,165 @@ func TestMatchImageResource(t *testing.T) {
 	}
 }
 
-func TestValidatePolicyOk(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
+func testMetadata() metav1.ObjectMeta {
+	labels := map[string]string{
+		"labelkey":   "lvalue",
+		"labelkey2":  "lvalue2",
+		"labelowner": "lsometeam",
+	}
 
-	adm := admissionHook{}
+	annotations := map[string]string{
+		"annotationkey":   "avalue",
+		"annotationkey2":  "avalue2",
+		"annotationowner": "asometeam",
+	}
 
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
+	return metav1.ObjectMeta{Labels: labels, Annotations: annotations}
+}
+
+func assertShouldMatch(t *testing.T, found bool, err error) {
+	t.Helper()
+
+	if !found || err != nil {
+		t.Fatal("Failed to match")
+	}
+
+	t.Log("Matched all properly")
+}
+
+func assertShouldNotMatch(t *testing.T, found bool, err error) {
+	t.Helper()
+
+	if found || err != nil {
+		t.Fatal("Incorrectly matched")
+	}
+
+	t.Log("Correctly did not match")
+}
+
+func TestValidate(t *testing.T) {
+	testCases := []struct {
+		name                      string
+		requestedKubernetesObject interface{}
+		gateMode                  GateModeType
+		expectedAllowedResponse   bool
+	}{
+		{
+			name:                      "policy gating, image exists, image passes",
+			requestedKubernetesObject: mockPod(passingImageName),
+			gateMode:                  PolicyGateMode,
+			expectedAllowedResponse:   true,
+		},
+		{
+			name:                      "policy gating, image exists, image fails",
+			requestedKubernetesObject: mockPod(failingImageName),
+			gateMode:                  PolicyGateMode,
+			expectedAllowedResponse:   false,
+		},
+		{
+			name:                      "policy gating, image doesn't exist",
+			requestedKubernetesObject: mockPod(nonexistentImageName),
+			gateMode:                  PolicyGateMode,
+			expectedAllowedResponse:   false,
+		},
+		{
+			name:                      "analysis gating, image exists, image passes",
+			requestedKubernetesObject: mockPod(passingImageName),
+			gateMode:                  AnalysisGateMode,
+			expectedAllowedResponse:   true,
+		},
+		{
+			name:                      "analysis gating, image doesn't exist",
+			requestedKubernetesObject: mockPod(nonexistentImageName),
+			gateMode:                  AnalysisGateMode,
+			expectedAllowedResponse:   false,
+		},
+		{
+			name:                      "analysis gating, image doesn't exist",
+			requestedKubernetesObject: mockPod(nonexistentImageName),
+			gateMode:                  AnalysisGateMode,
+			expectedAllowedResponse:   false,
+		},
+		{
+			name:                      "passive gating, image exists, image passes",
+			requestedKubernetesObject: mockPod(passingImageName),
+			gateMode:                  BreakGlassMode,
+			expectedAllowedResponse:   true,
+		},
+		{
+			name:                      "passive gating, image doesn't exist",
+			requestedKubernetesObject: mockPod(nonexistentImageName),
+			gateMode:                  BreakGlassMode,
+			expectedAllowedResponse:   true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// arrange
+			anchoreService := mockAnchoreService()
+			defer anchoreService.Close()
+
+			hook := admissionHook{}
+			config = mockControllerConfiguration(testCase.gateMode, anchoreService)
+			authConfig = mockAnchoreAuthConfig()
+			admissionRequest := mockAdmissionRequest(t, testCase.requestedKubernetesObject)
+
+			// act
+			admissionResponse := hook.Validate(&admissionRequest)
+			t.Logf("admission response: %s\n", admissionResponse)
+
+			// assert
+			assert.Equal(t, testCase.expectedAllowedResponse, admissionResponse.Allowed)
+		})
+	}
+}
+
+func mockPod(image string) v1.Pod {
+	return v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:    "Container1",
+					Image:   image,
+					Command: []string{"bin/bash", "bin"},
+				},
 			},
 		},
+	}
+}
+
+func mockControllerConfiguration(mode GateModeType, testServer *httptest.Server) ControllerConfiguration {
+	return ControllerConfiguration{
+		ValidatorConfiguration{true, true},
+		testServer.URL,
+		[]PolicySelector{
+			{
+				ResourceSelector{ImageSelectorType, ".*", ".*"},
+				AnchoreClientConfiguration{"admin", ""},
+				mode,
+			},
 		},
 	}
+}
 
-	marshalledPod, err := json.Marshal(tpod)
+func mockAnchoreAuthConfig() AnchoreAuthConfig {
+	return AnchoreAuthConfig{
+		[]AnchoreCredential{
+			{"admin", "password"},
+		},
+	}
+}
 
+func mockAdmissionRequest(t *testing.T, requestedObject interface{}) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	marshalledObject, err := json.Marshal(requestedObject)
 	if err != nil {
-		t.Fatal("Failed marshalling pod spec")
+		t.Fatal(err)
 	}
 
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
+	return v1beta1.AdmissionRequest{
 		UID:         "abc123",
 		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
 		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
@@ -404,392 +491,54 @@ func TestValidatePolicyOk(t *testing.T) {
 		Name:        "somename",
 		Namespace:   "default",
 		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
+		Object:      runtime.RawExtension{Raw: marshalledObject},
 	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.True(t, resp.Allowed)
 }
 
-func TestValidatePolicyFail(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "bad-alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.False(t, resp.Allowed)
-}
-
-func TestValidatePolicyNotFound(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, PolicyGateMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.True(t, !resp.Allowed)
-}
-
-func TestValidateAnalyzedOk(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, ".*", ".*"}, AnchoreClientConfiguration{"admin", ""}, AnalysisGateMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.True(t, resp.Allowed)
-}
-
-func TestValidateAnalyzedFail(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, AnalysisGateMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.False(t, resp.Allowed)
-}
-
-func TestValidatePassiveFound(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "alpine",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, BreakGlassMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.True(t, resp.Allowed)
-}
-
-func TestValidatePassiveNotFound(t *testing.T) {
-	ts := createTestService()
-	defer ts.Close()
-
-	adm := admissionHook{}
-
-	// Valid image, passes policy
-	tpod := &v1.Pod{
-		Spec: v1.PodSpec{Containers: []v1.Container{
-			{
-				Name:    "Container1",
-				Image:   "ubuntu",
-				Command: []string{"bin/bash", "bin"},
-			},
-		},
-		},
-	}
-
-	marshalledPod, err := json.Marshal(tpod)
-
-	if err != nil {
-		t.Fatal("Failed marshalling")
-	}
-
-	testConf := ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		ts.URL,
-		[]PolicySelector{{ResourceSelector{ImageSelectorType, "", ".*"}, AnchoreClientConfiguration{"admin", ""}, BreakGlassMode}},
-	}
-
-	config = testConf
-	authConfig = AnchoreAuthConfig{
-		[]AnchoreCredential{AnchoreCredential{"admin", "password"}},
-	}
-
-	admSpec := v1beta1.AdmissionRequest{
-		UID:         "abc123",
-		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: "Pod"},
-		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
-		SubResource: "someresource",
-		Name:        "somename",
-		Namespace:   "default",
-		Operation:   "CREATE",
-		Object:      runtime.RawExtension{Raw: marshalledPod},
-	}
-
-	resp := adm.Validate(&admSpec)
-
-	obj, err := json.Marshal(resp)
-	if err == nil {
-		fmt.Println(string(obj[:]))
-	}
-
-	assert.True(t, resp.Allowed)
-}
-
-func createTestService() *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func mockAnchoreService() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		if r.URL.Path == "/images" {
 			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine:latest", "docker.io/alpine", "alpine":
-				fmt.Fprintln(w, AlpineImageLookup)
+			case passingImageName:
+				fmt.Fprintln(w, mockImageLookupResponse(passingImageName, passingImageDigest))
 				return
-			case "docker.io/bad-alpine:latest", "docker.io/bad-alpine", "bad-alpine":
-				fmt.Fprintln(w, BadAlpineImageLookup)
+			case failingImageName:
+				fmt.Fprintln(w, mockImageLookupResponse(failingImageName, failingImageDigest))
 				return
 			}
 
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, ImageLookupError)
+			fmt.Fprint(w, imageLookupError)
 			return
 		}
 
 		switch r.URL.Path {
-		case "/images/sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-			fmt.Fprintln(w, GoodPassResponse)
+		case urlForImageCheck(passingImageDigest):
+			fmt.Fprintln(w, mockImageCheckResponse(passingImageName, passingImageDigest, passingStatus))
 			return
-		case "/images/sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b/check":
-			fmt.Fprintln(w, GoodFailResponse)
+		case urlForImageCheck(failingImageDigest):
+			fmt.Fprintln(w, mockImageCheckResponse(failingImageName, failingImageDigest, failingStatus))
 			return
 		}
 
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, ImageNotFound)
+		fmt.Fprint(w, imageNotFound)
 	}))
-
-	return ts
 }
 
-const GoodPassResponse = `
+const (
+	passingImageName     = "alpine"
+	failingImageName     = "bad-alpine"
+	nonexistentImageName = "ubuntu"
+	passingImageDigest   = "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b"
+	failingImageDigest   = "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+	passingStatus        = "pass"
+	failingStatus        = "fail"
+)
+
+const goodPassResponse = `
 [
   {
     "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
@@ -806,7 +555,7 @@ const GoodPassResponse = `
 ]
 `
 
-const GoodFailResponse = `
+const goodFailResponse = `
 [
   {
     "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
@@ -823,20 +572,46 @@ const GoodFailResponse = `
 ]
 `
 
-const ImageNotFound = `
+const imageNotFound = `
 {  
   "message": "could not get image record from anchore"
 }
 `
 
-const AlpineImageLookup = `
+const imageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
+
+func urlForImageCheck(imageDigest string) string {
+	return fmt.Sprintf("/images/%s/check", imageDigest)
+}
+
+func mockImageCheckResponse(imageName, imageDigest, status string) string {
+	return fmt.Sprintf(`
+[
+  {
+    "%s": {
+      "docker.io/%s:latest": [
+        {
+          "detail": {},
+          "last_evaluation": "2018-12-03T17:46:13Z",
+          "policyId": "2c53a13c-1765-11e8-82ef-23527761d060",
+          "status": "%s"
+        }
+      ]
+    }
+  }
+]
+`, imageDigest, imageName, status)
+}
+
+func mockImageLookupResponse(imageName, imageDigest string) string {
+	return fmt.Sprintf(`
 [
   {
     "analysis_status": "analyzed",
     "analyzed_at": "2018-12-03T18:24:54Z",
     "annotations": {},
     "created_at": "2018-12-03T18:24:43Z",
-    "imageDigest": "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+    "imageDigest": "%s",
     "image_content": {
       "metadata": {
         "arch": "amd64",
@@ -850,15 +625,15 @@ const AlpineImageLookup = `
     "image_detail": [
       {
         "created_at": "2018-12-03T18:24:43Z",
-        "digest": "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+        "digest": "%s",
         "dockerfile": "RlJPTSBzY3JhdGNoCkFERCBmaWxlOjI1YzEwYjFkMWI0MWQ0NmExODI3YWQwYjBkMjM4OWMyNGRmNmQzMTQzMDAwNWZmNGU5YTJkODRlYTIzZWJkNDIgaW4gLyAKQ01EIFsiL2Jpbi9zaCJdCg==",
-        "fulldigest": "docker.io/alpine@sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
-        "fulltag": "docker.io/alpine:latest",
-        "imageDigest": "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
+        "fulldigest": "docker.io/%s@%s",
+        "fulltag": "docker.io/%s:latest",
+        "imageDigest": "%s",
         "imageId": "196d12cf6ab19273823e700516e98eb1910b03b17840f9d5509f03858484d321",
         "last_updated": "2018-12-03T18:24:54Z",
         "registry": "docker.io",
-        "repo": "alpine",
+        "repo": "%s",
         "tag": "latest",
         "tag_detected_at": "2018-12-03T18:24:43Z",
         "userId": "admin"
@@ -871,53 +646,8 @@ const AlpineImageLookup = `
     "userId": "admin"
   }
 ]
-`
-
-const BadAlpineImageLookup = `
-[
-  {
-    "analysis_status": "analyzed",
-    "analyzed_at": "2018-12-03T18:24:54Z",
-    "annotations": {},
-    "created_at": "2018-12-03T18:24:43Z",
-    "imageDigest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
-    "image_content": {
-      "metadata": {
-        "arch": "amd64",
-        "distro": "alpine",
-        "distro_version": "3.8.1",
-        "dockerfile_mode": "Guessed",
-        "image_size": 2206931,
-        "layer_count": 1
-      }
-    },
-    "image_detail": [
-      {
-        "created_at": "2018-12-03T18:24:43Z",
-        "digest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
-        "dockerfile": "RlJPTSBzY3JhdGNoCkFERCBmaWxlOjI1YzEwYjFkMWI0MWQ0NmExODI3YWQwYjBkMjM4OWMyNGRmNmQzMTQzMDAwNWZmNGU5YTJkODRlYTIzZWJkNDIgaW4gLyAKQ01EIFsiL2Jpbi9zaCJdCg==",
-        "fulldigest": "docker.io/bad-alpine@sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
-        "fulltag": "docker.io/bad-alpine:latest",
-        "imageDigest": "sha256:11111826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b",
-        "imageId": "196d12cf6ab19273823e700516e98eb1910b03b17840f9d5509f03858484d321",
-        "last_updated": "2018-12-03T18:24:54Z",
-        "registry": "docker.io",
-        "repo": "bad-alpine",
-        "tag": "latest",
-        "tag_detected_at": "2018-12-03T18:24:43Z",
-        "userId": "admin"
-      }
-    ],
-    "image_status": "active",
-    "image_type": "docker",
-    "last_updated": "2018-12-03T18:24:54Z",
-    "parentDigest": "sha256:621c2f39f8133acb8e64023a94dbdf0d5ca81896102b9e57c0dc184cadaf5528",
-    "userId": "admin"
-  }
-]
-`
-
-const ImageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
+`, imageDigest, imageDigest, imageName, imageDigest, imageName, imageDigest, imageName)
+}
 
 func TestLookupImage(t *testing.T) {
 	t.Log("Testing image lookup handling")
@@ -929,10 +659,10 @@ func TestLookupImage(t *testing.T) {
 		} else {
 			switch r.URL.Query().Get("fulltag") {
 			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, AlpineImageLookup)
+				fmt.Fprintln(w, mockImageLookupResponse(passingImageName, passingImageDigest))
 			default:
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, ImageLookupError)
+				fmt.Fprint(w, imageLookupError)
 			}
 		}
 	}))
@@ -988,15 +718,15 @@ func TestCheckImage(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/images/goodfail/check":
-			fmt.Fprintln(w, GoodFailResponse)
+			fmt.Fprintln(w, goodFailResponse)
 		case "/images/goodpass/check":
-			fmt.Fprintln(w, GoodPassResponse)
+			fmt.Fprintln(w, goodPassResponse)
 		case "/images/imagenotfound/check":
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, ImageNotFound)
+			fmt.Fprint(w, imageNotFound)
 		case "/images/policynotfound/check":
 			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, ImageNotFound)
+			fmt.Fprint(w, imageNotFound)
 		default:
 			fmt.Fprint(w, r.URL.Path)
 		}
