@@ -33,7 +33,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/openshift/generic-admission-server/pkg/cmd"
 	"github.com/spf13/viper"
-	admissionv1beta1 "k8s.io/api/admission/v1beta1"
+	"k8s.io/api/admission/v1beta1"
 	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,8 +49,6 @@ var confVpr *viper.Viper
 var config ControllerConfiguration
 var authConfig AnchoreAuthConfig
 
-//var log logr.Logger
-
 var clientset *kubernetes.Clientset
 
 type admissionHook struct {
@@ -65,7 +63,7 @@ const (
 )
 
 // The handler map to route based on the admission kind
-var resourceHandlers = map[string]func(*admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error){
+var resourceHandlers = map[string]func(*v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error){
 	metav1.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,
 		Version: v1.SchemeGroupVersion.Version,
@@ -81,8 +79,7 @@ var resourceHandlers = map[string]func(*admissionv1beta1.AdmissionRequest) (*met
 /*
 Get the PodSpecs and ObjectMeta from a Pod resource
 */
-func podHandler(admissionRequest *admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
-	//klog.Info("Handling a Pod validation")
+func podHandler(admissionRequest *v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
 	var pod v1.Pod
 	err := json.Unmarshal(admissionRequest.Object.Raw, &pod)
 	if err != nil {
@@ -94,7 +91,7 @@ func podHandler(admissionRequest *admissionv1beta1.AdmissionRequest) (*metav1.Ob
 /*
 Get the PodSpecs and ObjectMeta from a Deployment resource
 */
-func deploymentPodExtractor(admissionRequest *admissionv1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
+func deploymentPodExtractor(admissionRequest *v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
 	// Extracts pod specs from the deployment resource
 	var deployment appsV1.Deployment
 	err := json.Unmarshal(admissionRequest.Object.Raw, &deployment)
@@ -178,7 +175,7 @@ func resolveResource(selector *ResourceSelector, objMetadata *metav1.ObjectMeta)
 	}
 }
 
-func (a *admissionHook) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
+func (a *admissionHook) Initialize(*rest.Config, <-chan struct{}) error {
 	klog.Info("Initializing handler")
 	return nil
 }
@@ -192,7 +189,7 @@ func (a *admissionHook) ValidatingResource() (plural schema.GroupVersionResource
 
 }
 
-func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionRequest) *admissionv1beta1.AdmissionResponse {
+func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
 	var err error
 	var containers []v1.Container
 	var anchoreClient *anchore.APIClient
@@ -203,7 +200,7 @@ func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionReq
 
 	matched := false
 
-	status := &admissionv1beta1.AdmissionResponse{
+	status := &v1beta1.AdmissionResponse{
 		Allowed: true,
 		UID:     admissionRequest.UID,
 		Result:  &metav1.Status{Status: metav1.StatusSuccess, Message: ""}}
@@ -225,16 +222,6 @@ func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionReq
 		return status
 	}
 
-	//klog.Info("Handling a Pod validation")
-	//err = json.Unmarshal(admissionRequest.Object.Raw, &pod)
-	//if err != nil {
-	//	klog.Error("Could not parse the pod spec err=", err)
-	//	status.Allowed = false
-	//	status.Result.Status = metav1.StatusFailure
-	//	status.Result.Reason = "Error parsing admission request pod spec"
-	//	return status
-	//}
-
 	if len(podSpecs) == 0 {
 		klog.Info("No pod spec found in resource. Nothing to validate")
 		status.Allowed = true
@@ -247,10 +234,7 @@ func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionReq
 	podSpec := podSpecs[0]
 	containers = podSpec.Containers
 
-	// Update the config to ensure we've got the latest
-	//config, _ := refreshConfig(confVpr)
-
-	if containers != nil && len(containers) > 0 {
+	if len(containers) > 0 {
 		for _, container := range containers {
 			matched = false
 			imageDigest = ""
@@ -366,7 +350,7 @@ func (a *admissionHook) Validate(admissionRequest *admissionv1beta1.AdmissionReq
 				if err != nil && status.Result.Message == "" {
 					status.Result.Message = err.Error()
 				}
-				//Break on the first disallowed image if there are multiple
+				// Break on the first disallowed image if there are multiple
 				break
 			}
 		}
@@ -440,7 +424,6 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
 /*
  Analyze an image with optional wait time. If waitTime > 0 the call will block until either a timeout, which returns an error,
  or the analysis completes and the resulting record is returned.
-
 */
 func AnalyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 
@@ -547,7 +530,7 @@ func CheckImage(imageRef string, optionalDigest string, optionalPolicyId string,
 }
 
 func findResult(parsed_result map[string]interface{}) string {
-	// Looks thru a parsed result for the status value, assumes this result is for a single image
+	// Looks through a parsed result for the status value, assumes this result is for a single image
 	digest := reflect.ValueOf(parsed_result).MapKeys()[0].String()
 	tag := reflect.ValueOf(parsed_result[digest]).MapKeys()[0]
 	result := reflect.ValueOf(reflect.ValueOf(parsed_result[digest]).MapIndex(tag).Interface()).Index(0).Elem()
@@ -566,12 +549,12 @@ func initClient(username string, password string, endpoint string) (*anchore.API
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
 	cfg.BasePath = endpoint
 
-	//TODO: cert verification options?
+	// TODO: cert verification options?
 	aClient := anchore.NewAPIClient(cfg)
 
-	//TODO: timeouts
-	//ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
-	auth := context.WithValue(context.Background(), anchore.ContextBasicAuth, anchore.BasicAuth{username, password})
+	// TODO: timeouts
+	// ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
+	auth := context.WithValue(context.Background(), anchore.ContextBasicAuth, anchore.BasicAuth{UserName: username, Password: password})
 	return aClient, auth, nil
 }
 
@@ -599,16 +582,7 @@ func updateAuthConfig(in fsnotify.Event) {
 	}
 }
 
-// For use later to switch to the controller runtime structured logging
-//func initLogger() (interface{}, error) {
-//	logz.SetLogger(logz.ZapLogger(false))
-//	log = logz.log.WithName("entrypoint")
-//	return log, nil
-//}
-
 func main() {
-	//initLogger()
-
 	// Hack to fix an issue with log that makes log lines prefixed with: "logging before flag.Parse:". Do not want that
 	flag.CommandLine.Parse([]string{})
 
@@ -659,11 +633,6 @@ func main() {
 	}
 	authVpr.OnConfigChange(updateAuthConfig)
 	authVpr.WatchConfig()
-
-	if err != nil {
-		klog.Error("Cannot initialize the client err=", err)
-		panic(err.Error())
-	}
 
 	// creates client with in-cluster config
 	config, err := rest.InClusterConfig()
