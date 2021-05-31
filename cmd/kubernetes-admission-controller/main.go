@@ -309,7 +309,10 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 
 		var imageDigest string
 
-		// TODO: get image digest
+		// TODO: get image
+		// Does image exist?
+		// If no, policy-mode and analysis-mode fail. Request analysis if asked.
+		// If yes,
 
 		switch mode {
 		case PolicyGateMode:
@@ -343,7 +346,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 			klog.Error("Image analysis request configured but no credentials mapped to execute the call. Skipping")
 		} else {
 			klog.Info("Requesting analysis of image ", "image=", image)
-			_, _, err = passiveValidate(image, anchoreClient, authCtx)
+			err = requestAnalysis(image, anchoreClient, authCtx)
 			if err != nil {
 				klog.Error("Error requesting analysis of image, but ignoring for validation result. err=", err)
 			}
@@ -364,41 +367,40 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 	return response
 }
 
-func passiveValidate(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
-	klog.Info("Performing passive validation. Will request image analysis and always allow admission")
-	var err error
+func requestAnalysis(image string, client *anchore.APIClient, authCtx context.Context) error {
+	klog.Info("Performing passive validation. Will request image analysis")
 
-	imgObj, err := AnalyzeImage(image, client, authCtx)
+	anchoreImage, err := analyzeImage(image, client, authCtx)
 	if err != nil {
 		klog.Error("Error from analysis request err=", err)
-		return true, "Allowed but could not request analysis due to error", nil
+		return fmt.Errorf("error requesting analysis: %w", err)
 	}
 
-	return true, fmt.Sprintf("Image analysis for image %s requested and found mapped to digest %s", image, imgObj.ImageDigest), nil
+	klog.Info(fmt.Sprintf("Image analysis for image %s requested and found mapped to digest %s", image, anchoreImage.ImageDigest))
+	return nil
 }
 
 // Returns bool is analyzed, string digest, string message, and error
 func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
-
 	klog.Info("Performing validation that the image is analyzed by Anchore")
-	ok, imageObj, err := IsImageAnalyzed(image, client, authCtx)
+	ok, imageObj, err := isImageAnalyzed(image, client, authCtx)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
 			klog.Info("Image is not analyzed")
 			return false, "", fmt.Sprintf("Image %s is not analyzed.", image), nil
-		} else {
-			klog.Error("Error checking anchore for image analysis status: err=", err)
-			return false, "", "", err
 		}
+
+		klog.Error("Error checking anchore for image analysis status: err=", err)
+		return false, "", "", err
 	}
 
 	if ok {
 		klog.Info("Image is analyzed")
 		return true, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is analyzed", image, imageObj.ImageDigest), nil
-	} else {
-		klog.Info("Image is not analyzed")
-		return false, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
 	}
+
+	klog.Info("Image is not analyzed")
+	return false, imageObj.ImageDigest, fmt.Sprintf("Image %s with digest %s is not analyzed", image, imageObj.ImageDigest), nil
 }
 
 // Returns bool is passed policy, string digest, string message, and error
@@ -410,6 +412,7 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
 			klog.Info("Image is not analyzed, cannot evaluate policy")
 			return false, "", fmt.Sprintf("Image %s is not analyzed. Cannot evaluate policy", image), nil
 		}
+
 		klog.Error("Image is not analyzed, error during evaluation check. err=", err)
 		return false, digest, "", err
 	}
@@ -417,18 +420,17 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
 	if ok {
 		klog.Info("Image passed policy evaluation. image=", image)
 		return true, digest, fmt.Sprintf("Image %s with digest %s passed policy checks for policy bundle %s", image, digest, bundleId), nil
-	} else {
-		klog.Info("Image failed policy evaluation. image=", image)
-		return false, digest, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
 	}
+
+	klog.Info("Image failed policy evaluation. image=", image)
+	return false, digest, fmt.Sprintf("Image %s with digest %s failed policy checks for policy bundle %s", image, digest, bundleId), nil
 }
 
 /*
  Analyze an image with optional wait time. If waitTime > 0 the call will block until either a timeout, which returns an error,
  or the analysis completes and the resulting record is returned.
 */
-func AnalyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
-
+func analyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
@@ -452,18 +454,18 @@ func AnalyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Co
 	}
 
 	return imageList[0], nil
-
 }
 
-func IsImageAnalyzed(imageRef string, client *anchore.APIClient, authCtx context.Context) (bool, anchore.AnchoreImage, error) {
-	imageObj, err := lookupImage(imageRef, client, authCtx)
+func isImageAnalyzed(imageRef string, client *anchore.APIClient, authCtx context.Context) (bool, anchore.AnchoreImage, error) {
+	anchoreImage, err := lookupImage(imageRef, client, authCtx)
 	if err != nil {
 		return false, anchore.AnchoreImage{}, err
-	} else {
-		isAnalyzed := imageObj.AnalysisStatus == "analyzed"
-		klog.Info("Image analyzed = ", isAnalyzed)
-		return isAnalyzed, imageObj, nil
 	}
+
+	isAnalyzed := anchoreImage.AnalysisStatus == "analyzed"
+	klog.Info("Image analyzed = ", isAnalyzed)
+
+	return isAnalyzed, anchoreImage, nil
 }
 
 func lookupImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
@@ -490,12 +492,12 @@ func lookupImage(imageRef string, client *anchore.APIClient, authCtx context.Con
 }
 
 func CheckImage(imageRef string, optionalPolicyId string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
-	imageObj, err := lookupImage(imageRef, client, authCtx)
+	anchoreImage, err := lookupImage(imageRef, client, authCtx)
 	if err != nil {
 		return false, "", err
 	}
 
-	digest := imageObj.ImageDigest
+	digest := anchoreImage.ImageDigest
 
 	localOptions := anchore.GetImagePolicyCheckOpts{}
 	localOptions.Interactive = optional.NewBool(true)
@@ -511,10 +513,9 @@ func CheckImage(imageRef string, optionalPolicyId string, client *anchore.APICli
 	if len(evaluations) > 0 {
 		resultStatus := findResult(evaluations[0])
 		return strings.ToLower(resultStatus) == "pass", digest, nil
-	} else {
-		return false, digest, nil
 	}
 
+	return false, digest, nil
 }
 
 func findResult(parsed_result map[string]interface{}) string {
