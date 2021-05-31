@@ -104,45 +104,45 @@ func deploymentPodExtractor(admissionRequest *v1beta1.AdmissionRequest) (*metav1
 /*
   Match any object metadata to the selector
 */
-func matchObjMetadata(selector *ResourceSelector, objMeta *metav1.ObjectMeta) (bool, error) {
-	mapArray := []map[string]string{objMeta.Labels, objMeta.Annotations}
+func matchObjMetadata(resourceSelector *ResourceSelector, object *metav1.ObjectMeta) bool {
+	mapArray := []map[string]string{object.Labels, object.Annotations}
 	for _, kvMap := range mapArray {
 		for k, v := range kvMap {
-			match, err := regexp.MatchString(selector.SelectorKeyRegex, k)
+			match, err := regexp.MatchString(resourceSelector.SelectorKeyRegex, k)
 			if err != nil {
-				klog.Error("Error evaluating regexp key= ", k, " regex = ", selector.SelectorKeyRegex, " err=", err)
-				match = false
+				klog.Error("Error evaluating regexp key= ", k, " regex = ", resourceSelector.SelectorKeyRegex, " err=", err)
+			}
+			if !match {
+				continue
 			}
 
-			match2, err := regexp.MatchString(selector.SelectorValueRegex, v)
+			match, err = regexp.MatchString(resourceSelector.SelectorValueRegex, v)
 			if err != nil {
-				klog.Error("Error evaluating regexp ", " value = ", v, " regex = ", selector.SelectorValueRegex, " err=", err)
-				match2 = false
-
+				klog.Error("Error evaluating regexp ", " value = ", v, " regex = ", resourceSelector.SelectorValueRegex, " err=", err)
+			}
+			if !match {
+				continue
 			}
 
-			if match && match2 {
-				return true, nil
-			}
-
+			return true
 		}
 	}
 
 	// Treat Name specially
-	if strings.ToLower(selector.SelectorKeyRegex) == "name" {
-		match, err := regexp.MatchString(selector.SelectorValueRegex, objMeta.Name)
+	if strings.ToLower(resourceSelector.SelectorKeyRegex) == "name" {
+		match, err := regexp.MatchString(resourceSelector.SelectorValueRegex, object.Name)
 		if err != nil {
-			klog.Error("Failed evaluating regex against metadata Name entry = ", objMeta.Name, " regex = ", selector.SelectorValueRegex, " err=", err)
+			klog.Error("Failed evaluating regex against metadata Name entry = ", object.Name, " regex = ", resourceSelector.SelectorValueRegex, " err=", err)
 			match = false
 		}
 
 		if match {
-			return true, nil
+			return true
 		}
 
 	}
 
-	return false, nil
+	return false
 }
 
 /*
@@ -156,7 +156,7 @@ func matchImageResource(regex string, img string) (bool, error) {
 /*
   Get the correct set of ObjectMeta for comparison, or nil if not a selector that uses ObjectMeta
 */
-func resolveResource(selector *ResourceSelector, objMetadata *metav1.ObjectMeta) (*metav1.ObjectMeta, error) {
+func selectObjectMetaForMatching(selector ResourceSelector, objMetadata *metav1.ObjectMeta) (*metav1.ObjectMeta, error) {
 	klog.Info("Resolving the resource to use for selection")
 	switch selector.ResourceType {
 	case ResourceSelectorType:
@@ -190,8 +190,6 @@ func (a *admissionHook) ValidatingResource() (plural schema.GroupVersionResource
 }
 
 func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
-	var err error
-	var containers []v1.Container
 	var anchoreClient *anchore.APIClient
 	var authCtx context.Context
 	var policyRef *AnchoreClientConfiguration
@@ -232,7 +230,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 
 	// TODO: this should be e loop to handle types with multiple pod specs
 	podSpec := podSpecs[0]
-	containers = podSpec.Containers
+	containers := podSpec.Containers
 
 	if len(containers) > 0 {
 		for _, container := range containers {
@@ -245,14 +243,14 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 
 			for _, selector := range config.PolicySelectors {
 				klog.Info("Checking selector ", "selector=", selector)
-				meta, err := resolveResource(&selector.Selector, objectMeta)
+				meta, err := selectObjectMetaForMatching(selector.ResourceSelector, objectMeta)
 				if err != nil {
 					klog.Error("Error checking selector, skipping err=", err)
 					continue
 				}
 
 				if meta != nil {
-					if match, err := matchObjMetadata(&selector.Selector, meta); match {
+					if match := matchObjMetadata(&selector.ResourceSelector, meta); match {
 						if err != nil {
 							klog.Error("Error doing selector match on metadata err=", err)
 							continue
@@ -265,7 +263,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 						break
 					}
 				} else {
-					if match, err := matchImageResource(selector.Selector.SelectorValueRegex, image); match {
+					if match, err := matchImageResource(selector.ResourceSelector.SelectorValueRegex, image); match {
 						if err != nil {
 							klog.Error("Error doing selector match on image reference err=", err)
 							continue

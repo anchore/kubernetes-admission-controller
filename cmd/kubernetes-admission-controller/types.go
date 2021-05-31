@@ -39,9 +39,9 @@ type ResourceSelector struct {
 }
 
 type PolicySelector struct {
-	Selector        ResourceSelector
-	PolicyReference AnchoreClientConfiguration
-	Mode            GateModeType
+	ResourceSelector ResourceSelector
+	PolicyReference  AnchoreClientConfiguration
+	Mode             GateModeType
 }
 
 type SelectorResourceType string

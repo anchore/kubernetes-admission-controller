@@ -207,7 +207,7 @@ func TestMatchObjMetadata(t *testing.T) {
 	testCases := []struct {
 		name      string
 		selector  ResourceSelector
-		assertion func(t *testing.T, found bool, err error)
+		assertion func(t *testing.T, found bool)
 	}{
 		{
 			name:      "should match anything",
@@ -280,8 +280,8 @@ func TestMatchObjMetadata(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			found, err := matchObjMetadata(&testCase.selector, &metadata)
-			testCase.assertion(t, found, err)
+			found := matchObjMetadata(&testCase.selector, &metadata)
+			testCase.assertion(t, found)
 		})
 	}
 }
@@ -291,7 +291,7 @@ func TestMatchImageResource(t *testing.T) {
 		name               string
 		selectorValueRegex string
 		image              string
-		assertion          func(t *testing.T, found bool, err error)
+		assertion          func(t *testing.T, found bool)
 	}{
 		{
 			name:               "match any image",
@@ -322,7 +322,10 @@ func TestMatchImageResource(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			found, err := matchImageResource(testCase.selectorValueRegex, testCase.image)
-			testCase.assertion(t, found, err)
+			if err != nil {
+				t.Fatal(err)
+			}
+			testCase.assertion(t, found)
 		})
 	}
 }
@@ -343,20 +346,20 @@ func testMetadata() metav1.ObjectMeta {
 	return metav1.ObjectMeta{Labels: labels, Annotations: annotations}
 }
 
-func assertShouldMatch(t *testing.T, found bool, err error) {
+func assertShouldMatch(t *testing.T, found bool) {
 	t.Helper()
 
-	if !found || err != nil {
+	if !found {
 		t.Fatal("Failed to match")
 	}
 
 	t.Log("Matched all properly")
 }
 
-func assertShouldNotMatch(t *testing.T, found bool, err error) {
+func assertShouldNotMatch(t *testing.T, found bool) {
 	t.Helper()
 
-	if found || err != nil {
+	if found {
 		t.Fatal("Incorrectly matched")
 	}
 
