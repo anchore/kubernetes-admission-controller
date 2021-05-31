@@ -292,7 +292,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 		if !matched {
 			// No rule matched, so skip this image
 			klog.Info("No selector match found")
-			break
+			continue
 		}
 
 		var anchoreClient *anchore.APIClient
