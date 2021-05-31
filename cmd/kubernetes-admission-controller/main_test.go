@@ -203,11 +203,11 @@ func TestConfig(t *testing.T) {
 
 }
 
-func TestMatchObjMetadata(t *testing.T) {
+func TestDoesObjectMatchResourceSelector(t *testing.T) {
 	testCases := []struct {
 		name      string
 		selector  ResourceSelector
-		assertion func(t *testing.T, found bool)
+		assertion func(t *testing.T, actual bool)
 	}{
 		{
 			name:      "should match anything",
@@ -280,8 +280,8 @@ func TestMatchObjMetadata(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			found := matchObjMetadata(&testCase.selector, &metadata)
-			testCase.assertion(t, found)
+			actual := doesObjectMatchResourceSelector(&testCase.selector, &metadata)
+			testCase.assertion(t, actual)
 		})
 	}
 }
@@ -346,20 +346,20 @@ func testMetadata() metav1.ObjectMeta {
 	return metav1.ObjectMeta{Labels: labels, Annotations: annotations}
 }
 
-func assertShouldMatch(t *testing.T, found bool) {
+func assertShouldMatch(t *testing.T, doesMatch bool) {
 	t.Helper()
 
-	if !found {
+	if !doesMatch {
 		t.Fatal("Failed to match")
 	}
 
 	t.Log("Matched all properly")
 }
 
-func assertShouldNotMatch(t *testing.T, found bool) {
+func assertShouldNotMatch(t *testing.T, doesMatch bool) {
 	t.Helper()
 
-	if found {
+	if doesMatch {
 		t.Fatal("Incorrectly matched")
 	}
 

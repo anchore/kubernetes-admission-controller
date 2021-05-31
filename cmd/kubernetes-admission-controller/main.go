@@ -104,7 +104,7 @@ func deploymentPodExtractor(admissionRequest *v1beta1.AdmissionRequest) (*metav1
 /*
   Match any object metadata to the selector
 */
-func matchObjMetadata(resourceSelector *ResourceSelector, object *metav1.ObjectMeta) bool {
+func doesObjectMatchResourceSelector(resourceSelector *ResourceSelector, object *metav1.ObjectMeta) bool {
 	mapArray := []map[string]string{object.Labels, object.Annotations}
 	for _, kvMap := range mapArray {
 		for k, v := range kvMap {
@@ -250,7 +250,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 				}
 
 				if meta != nil {
-					if match := matchObjMetadata(&selector.ResourceSelector, meta); match {
+					if match := doesObjectMatchResourceSelector(&selector.ResourceSelector, meta); match {
 						if err != nil {
 							klog.Error("Error doing selector match on metadata err=", err)
 							continue
