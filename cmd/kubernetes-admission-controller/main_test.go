@@ -280,7 +280,7 @@ func TestDoesObjectMatchResourceSelector(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := doesObjectMatchResourceSelector(&testCase.selector, &metadata)
+			actual := doesObjectMatchResourceSelector(&metadata, testCase.selector)
 			testCase.assertion(t, actual)
 		})
 	}
