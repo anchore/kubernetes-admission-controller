@@ -63,7 +63,7 @@ const (
 )
 
 // The handler map to route based on the admission kind
-var resourceHandlers = map[string]func(*v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error){
+var resourceHandlers = map[string]func(v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error){
 	metav1.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,
 		Version: v1.SchemeGroupVersion.Version,
@@ -79,26 +79,27 @@ var resourceHandlers = map[string]func(*v1beta1.AdmissionRequest) (*metav1.Objec
 /*
 Get the PodSpecs and ObjectMeta from a Pod resource
 */
-func podHandler(admissionRequest *v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
+func podHandler(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var pod v1.Pod
 	err := json.Unmarshal(admissionRequest.Object.Raw, &pod)
 	if err != nil {
-		return nil, nil, err
+		return metav1.ObjectMeta{}, nil, err
 	}
-	return &pod.ObjectMeta, []*v1.PodSpec{&pod.Spec}, nil
+	return pod.ObjectMeta, []v1.PodSpec{pod.Spec}, nil
 }
 
 /*
 Get the PodSpecs and ObjectMeta from a Deployment resource
 */
-func deploymentPodExtractor(admissionRequest *v1beta1.AdmissionRequest) (*metav1.ObjectMeta, []*v1.PodSpec, error) {
+func deploymentPodExtractor(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	// Extracts pod specs from the deployment resource
 	var deployment appsV1.Deployment
 	err := json.Unmarshal(admissionRequest.Object.Raw, &deployment)
 	if err != nil {
-		return nil, nil, err
+		return metav1.ObjectMeta{}, nil, err
 	}
-	return &deployment.ObjectMeta, []*v1.PodSpec{&deployment.Spec.Template.Spec}, nil
+
+	return deployment.ObjectMeta, []v1.PodSpec{deployment.Spec.Template.Spec}, nil
 }
 
 func doesKeyValuePairMatchResourceSelector(key, value string,
@@ -155,13 +156,13 @@ func matchImageResource(regex string, img string) (bool, error) {
 /*
   Get the correct set of ObjectMeta for comparison, or nil if not a selector that uses ObjectMeta
 */
-func selectObjectMetaForMatching(selector ResourceSelector, objMetadata *metav1.ObjectMeta) (*metav1.ObjectMeta, error) {
+func selectObjectMetaForMatching(selector ResourceSelector, objectMeta metav1.ObjectMeta) (*metav1.ObjectMeta, error) {
 	klog.Info("Resolving the resource to use for selection")
 	switch selector.ResourceType {
 	case ResourceSelectorType:
-		return objMetadata, nil
+		return &objectMeta, nil
 	case NamespaceSelectorType:
-		nsFound, err := clientset.CoreV1().Namespaces().Get(objMetadata.Namespace, metav1.GetOptions{})
+		nsFound, err := clientset.CoreV1().Namespaces().Get(objectMeta.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		} else {
@@ -230,7 +231,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 	}
 
 	// Use the handler to get podSpec from the appropriate resource handler
-	objectMeta, podSpecs, err := handler(admissionRequest)
+	objectMeta, podSpecs, err := handler(*admissionRequest)
 	if err != nil {
 		klog.Error("could not handle the admission request err=", err)
 		return errorAdmissionResponse(*admissionRequest, "Error parsing admission request to extract object kind and metadata")
@@ -251,45 +252,12 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 	}
 
 	for _, container := range containers {
-		matched := false
 		image := container.Image
 		klog.Info("Evaluating selectors for image=", image)
 
-		var policyRef *AnchoreClientConfiguration
-		var mode GateModeType
+		gateConfiguration := getMatchingGateConfiguration(objectMeta, image)
 
-		for _, policySelector := range config.PolicySelectors {
-			klog.Info("Checking selector ", "selector=", policySelector)
-			meta, err := selectObjectMetaForMatching(policySelector.ResourceSelector, objectMeta)
-			if err != nil {
-				klog.Error("Error checking selector, skipping err=", err)
-				continue
-			}
-
-			if meta != nil {
-				if match := doesObjectMatchResourceSelector(meta, policySelector.ResourceSelector); match {
-					policyRef = &policySelector.PolicyReference
-					mode = policySelector.Mode
-					matched = true
-					klog.Info("Matched selector rule=", policySelector)
-					break
-				}
-			} else {
-				if match, err := matchImageResource(policySelector.ResourceSelector.SelectorValueRegex, image); match {
-					if err != nil {
-						klog.Error("Error doing selector match on image reference err=", err)
-						continue
-					}
-					policyRef = &policySelector.PolicyReference
-					mode = policySelector.Mode
-					matched = true
-					klog.Info("Matched selector rule=", policySelector, " with mode=", mode)
-					break
-				}
-			}
-		}
-
-		if !matched {
+		if gateConfiguration == nil {
 			// No rule matched, so skip this image
 			klog.Info("No selector match found")
 			continue
@@ -298,30 +266,26 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 		var anchoreClient *anchore.APIClient
 		var authCtx context.Context
 
-		if policyRef != nil {
-			for _, entry := range authConfig.Users {
-				if entry.Username == policyRef.Username {
-					klog.Info("Found selector match for user ", "Username=", entry.Username, " PolicyBundleId=", policyRef.PolicyBundleId)
-					anchoreClient, authCtx, _ = initClient(entry.Username, entry.Password, config.AnchoreEndpoint)
-				}
+		for _, entry := range authConfig.Users {
+			if entry.Username == gateConfiguration.PolicyReference.Username {
+				klog.Info("Found selector match for user ", "Username=", entry.Username, " PolicyBundleId=", gateConfiguration.PolicyReference.PolicyBundleId)
+				anchoreClient, authCtx, _ = initClient(entry.Username, entry.Password, config.AnchoreEndpoint)
 			}
 		}
 
 		var imageDigest string
 
-		// TODO: get image
-		// Does image exist?
-		// If no, policy-mode and analysis-mode fail. Request analysis if asked.
-		// If yes,
+		mode := gateConfiguration.Mode
+		policyReference := gateConfiguration.PolicyReference
 
-		switch mode {
+		switch gateConfiguration.Mode {
 		case PolicyGateMode:
-			if anchoreClient == nil || authCtx == nil || policyRef == nil {
+			if anchoreClient == nil || authCtx == nil {
 				klog.Error("No valid policy reference with valid credentials found. Failing validation")
 				return errorAdmissionResponse(*admissionRequest, "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it")
 			}
 
-			status.Allowed, imageDigest, status.Result.Message, err = validatePolicy(image, policyRef.PolicyBundleId, anchoreClient, authCtx)
+			status.Allowed, imageDigest, status.Result.Message, err = validatePolicy(image, policyReference.PolicyBundleId, anchoreClient, authCtx)
 
 		case AnalysisGateMode:
 			if anchoreClient == nil || authCtx == nil {
@@ -365,6 +329,45 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 	response := defaultAdmissionResponse(*admissionRequest)
 	klog.Info("Returning status=", response)
 	return response
+}
+
+func getMatchingGateConfiguration(objectMeta metav1.ObjectMeta, image string) *GateConfiguration {
+	for _, policySelector := range config.PolicySelectors {
+		klog.Info("Checking selector ", "selector=", policySelector)
+
+		meta, err := selectObjectMetaForMatching(policySelector.ResourceSelector, objectMeta)
+		if err != nil {
+			klog.Error("Error checking selector, skipping err=", err)
+			continue
+		}
+
+		if meta != nil {
+			if match := doesObjectMatchResourceSelector(meta, policySelector.ResourceSelector); match {
+				klog.Info("Matched selector rule=", policySelector)
+
+				return &GateConfiguration{
+					Mode:            policySelector.Mode,
+					PolicyReference: policySelector.PolicyReference,
+				}
+			}
+		} else {
+			if match, err := matchImageResource(policySelector.ResourceSelector.SelectorValueRegex, image); match {
+				if err != nil {
+					klog.Error("Error doing selector match on image reference err=", err)
+					continue
+				}
+
+				klog.Info("Matched selector rule=", policySelector, " with mode=", policySelector.Mode)
+
+				return &GateConfiguration{
+					Mode:            policySelector.Mode,
+					PolicyReference: policySelector.PolicyReference,
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func requestAnalysis(image string, client *anchore.APIClient, authCtx context.Context) error {

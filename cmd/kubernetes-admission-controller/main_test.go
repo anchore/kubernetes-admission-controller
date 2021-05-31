@@ -815,8 +815,7 @@ func TestHandlePod(t *testing.T) {
 		Object:      runtime.RawExtension{Raw: marshalledPod},
 	}
 
-	meta, podSpecs, err := podHandler(&admSpec)
-	assert.True(t, meta != nil)
+	_, podSpecs, err := podHandler(admSpec)
 	assert.True(t, podSpecs[0].Containers[0].Name == tpod.Spec.Containers[0].Name)
 }
 
@@ -864,9 +863,8 @@ func TestHandleDeployment(t *testing.T) {
 		Object:      runtime.RawExtension{Raw: marshalledDeployment},
 	}
 
-	metas, podSpecs, err := deploymentPodExtractor(&admSpec)
+	_, podSpecs, err := deploymentPodExtractor(admSpec)
 	assert.Nil(t, err, err)
-	assert.NotNil(t, metas, "metas nil")
 	assert.True(t, len(podSpecs) > 0, "pod spec zero length")
 	assert.NotNil(t, podSpecs[0].Containers, "no containers section")
 	assert.True(t, len(podSpecs[0].Containers) > 0, "no containers in pod spec")

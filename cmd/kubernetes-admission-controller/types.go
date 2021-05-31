@@ -47,6 +47,11 @@ type PolicySelector struct {
 type SelectorResourceType string
 type GateModeType string
 
+type GateConfiguration struct {
+	Mode            GateModeType
+	PolicyReference AnchoreClientConfiguration
+}
+
 const (
 	ResourceSelectorType  SelectorResourceType = "resource"
 	PodSelectorType       SelectorResourceType = "pod"
