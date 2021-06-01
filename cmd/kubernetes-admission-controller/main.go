@@ -216,29 +216,34 @@ func errorAdmissionResponse(request v1beta1.AdmissionRequest, message string) *v
 }
 
 func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
+	if admissionRequest == nil {
+		return nil
+	}
+	request := *admissionRequest
+
 	status := &v1beta1.AdmissionResponse{
 		Allowed: true,
-		UID:     admissionRequest.UID,
+		UID:     request.UID,
 		Result:  &metav1.Status{Status: metav1.StatusSuccess, Message: ""},
 	}
 
 	// Handle higher-level types as well as pods, helps make error messages cleaner
-	handler, _ := resourceHandlers[admissionRequest.Kind.String()]
+	handler, _ := resourceHandlers[request.Kind.String()]
 	if handler == nil {
-		klog.Error("unsupported admission request kind ", admissionRequest.Kind.Kind)
-		return defaultAdmissionResponse(*admissionRequest)
+		klog.Error("unsupported admission request kind ", request.Kind.Kind)
+		return defaultAdmissionResponse(request)
 	}
 
 	// Use the handler to get podSpec from the appropriate resource handler
-	objectMeta, podSpecs, err := handler(*admissionRequest)
+	objectMeta, podSpecs, err := handler(request)
 	if err != nil {
 		klog.Error("could not handle the admission request err=", err)
-		return errorAdmissionResponse(*admissionRequest, "Error parsing admission request to extract object kind and metadata")
+		return errorAdmissionResponse(request, "Error parsing admission request to extract object kind and metadata")
 	}
 
 	if len(podSpecs) == 0 {
 		klog.Info("No pod spec found in resource. Nothing to validate")
-		return successAdmissionResponse(*admissionRequest, "no pod spec or images found to validate")
+		return successAdmissionResponse(request, "no pod spec or images found to validate")
 	}
 
 	// TODO: this should be e loop to handle types with multiple pod specs
@@ -247,7 +252,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 
 	if len(containers) == 0 {
 		klog.Info("No container specs to validate")
-		return defaultAdmissionResponse(*admissionRequest)
+		return defaultAdmissionResponse(request)
 	}
 
 	for _, container := range containers {
@@ -262,8 +267,8 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 			continue
 		}
 
-		var anchoreClient anchoreImagesClient
-		var authCtx context.Context
+		var anchoreClient anchoreImagesClient = nil
+		var authCtx context.Context = nil
 
 		for _, entry := range authConfig.Users {
 			if entry.Username == gateConfiguration.PolicyReference.Username {
@@ -286,7 +291,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 		case PolicyGateMode:
 			if anchoreClient == nil || authCtx == nil {
 				klog.Error("No valid policy reference with valid credentials found. Failing validation")
-				return errorAdmissionResponse(*admissionRequest, "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it")
+				return errorAdmissionResponse(request, "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it")
 			}
 
 			status.Allowed, imageDigest, status.Result.Message, err = validatePolicy(image, policyReference.PolicyBundleId, anchoreClient, authCtx)
@@ -294,18 +299,18 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 		case AnalysisGateMode:
 			if anchoreClient == nil || authCtx == nil {
 				klog.Error("No valid policy reference with valid credentials found. Failing validation")
-				return errorAdmissionResponse(*admissionRequest, "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it")
+				return errorAdmissionResponse(request, "No policy/endpoint selector matched the request or no client credentials were available, but the validator configuration requires it")
 			}
 
 			status.Allowed, imageDigest, status.Result.Message, err = validateAnalyzed(image, anchoreClient, authCtx)
 
 		case BreakGlassMode:
 			klog.Info("No check requirements in config and no analysis request configured. Allowing")
-			return defaultAdmissionResponse(*admissionRequest)
+			return defaultAdmissionResponse(request)
 
 		default:
 			klog.Error("Got unexpected mode value for matching selector. Failing on error. Mode=", mode)
-			return errorAdmissionResponse(*admissionRequest, "Invalid controller configuration encountered. Could not execute check correctly")
+			return errorAdmissionResponse(request, "Invalid controller configuration encountered. Could not execute check correctly")
 		}
 
 		// Only request analysis if the other gates failed, indicating either missing image or policy failure
@@ -327,11 +332,11 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 				message = err.Error()
 			}
 
-			return errorAdmissionResponse(*admissionRequest, message)
+			return errorAdmissionResponse(request, message)
 		}
 	}
 
-	response := defaultAdmissionResponse(*admissionRequest)
+	response := defaultAdmissionResponse(request)
 	klog.Info("Returning status=", response)
 	return response
 }
