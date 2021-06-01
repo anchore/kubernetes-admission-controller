@@ -691,7 +691,7 @@ func TestLookupImage(t *testing.T) {
 	for _, item := range calls {
 		t.Log(fmt.Sprintf("Checking %s", item))
 		localOpts.Fulltag = optional.NewString(item[0])
-		imageListing, _, err := client.ImagesApi.ListImages(authCtx, &localOpts)
+		imageListing, _, err := client.ListImages(authCtx, &localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
 				t.Log("Expected error response from server: ", err)
@@ -756,7 +756,7 @@ func TestCheckImage(t *testing.T) {
 	for _, item := range calls {
 
 		t.Log(fmt.Sprintf("Checking %s", item))
-		policyEvaluations, _, err := client.ImagesApi.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", &localOpts)
+		policyEvaluations, _, err := client.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", &localOpts)
 		if err != nil {
 			if item[1] == "notfound" {
 				t.Log("Expected error response from server: ", err)

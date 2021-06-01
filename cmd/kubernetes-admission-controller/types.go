@@ -4,6 +4,13 @@ Type definitions for the controller
 
 package main
 
+import (
+	_context "context"
+	_nethttp "net/http"
+
+	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
+)
+
 type ControllerConfiguration struct {
 	Validator       ValidatorConfiguration
 	AnchoreEndpoint string // The full url to use for interacting with anchore
@@ -50,6 +57,25 @@ type GateModeType string
 type GateConfiguration struct {
 	Mode            GateModeType
 	PolicyReference AnchoreClientConfiguration
+}
+
+// anchoreImagesClient is an abstraction for consumers that need to interact with Anchore's image functionality.
+type anchoreImagesClient interface {
+	AddImage(
+		ctx _context.Context,
+		image anchore.ImageAnalysisRequest,
+		localVarOptionals *anchore.AddImageOpts,
+	) ([]anchore.AnchoreImage, *_nethttp.Response, error)
+	ListImages(
+		ctx _context.Context,
+		localVarOptionals *anchore.ListImagesOpts,
+	) ([]anchore.AnchoreImage, *_nethttp.Response, error)
+	GetImagePolicyCheck(
+		ctx _context.Context,
+		imageDigest string,
+		tag string,
+		localVarOptionals *anchore.GetImagePolicyCheckOpts,
+	) ([]map[string]interface{}, *_nethttp.Response, error)
 }
 
 const (

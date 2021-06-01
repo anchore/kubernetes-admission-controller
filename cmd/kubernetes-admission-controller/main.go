@@ -165,9 +165,9 @@ func selectObjectMetaForMatching(selector ResourceSelector, objectMeta metav1.Ob
 		nsFound, err := clientset.CoreV1().Namespaces().Get(objectMeta.Namespace, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
-		} else {
-			return &nsFound.ObjectMeta, nil
 		}
+
+		return &nsFound.ObjectMeta, nil
 	case ImageSelectorType:
 		return nil, nil
 	default:
@@ -186,7 +186,6 @@ func (a *admissionHook) ValidatingResource() (plural schema.GroupVersionResource
 		Version:  "v1beta1",
 		Resource: "imagechecks",
 	}, "imagecheck"
-
 }
 
 func defaultAdmissionResponse(request v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
@@ -263,7 +262,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 			continue
 		}
 
-		var anchoreClient *anchore.APIClient
+		var anchoreClient anchoreImagesClient
 		var authCtx context.Context
 
 		for _, entry := range authConfig.Users {
@@ -274,6 +273,11 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 		}
 
 		var imageDigest string
+
+		// TODO: defer an analysis request —— only if no Anchore image, we have creds,
+		//  and `config.Validator.RequestAnalysis` is true
+
+		// TODO: then, we can immediately return admissionResponses from validate* functions
 
 		mode := gateConfiguration.Mode
 		policyReference := gateConfiguration.PolicyReference
@@ -297,6 +301,7 @@ func (a *admissionHook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1
 
 		case BreakGlassMode:
 			klog.Info("No check requirements in config and no analysis request configured. Allowing")
+			return defaultAdmissionResponse(*admissionRequest)
 
 		default:
 			klog.Error("Got unexpected mode value for matching selector. Failing on error. Mode=", mode)
@@ -370,7 +375,7 @@ func getMatchingGateConfiguration(objectMeta metav1.ObjectMeta, image string) *G
 	return nil
 }
 
-func requestAnalysis(image string, client *anchore.APIClient, authCtx context.Context) error {
+func requestAnalysis(image string, client anchoreImagesClient, authCtx context.Context) error {
 	klog.Info("Performing passive validation. Will request image analysis")
 
 	anchoreImage, err := analyzeImage(image, client, authCtx)
@@ -384,7 +389,7 @@ func requestAnalysis(image string, client *anchore.APIClient, authCtx context.Co
 }
 
 // Returns bool is analyzed, string digest, string message, and error
-func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
+func validateAnalyzed(image string, client anchoreImagesClient, authCtx context.Context) (bool, string, string, error) {
 	klog.Info("Performing validation that the image is analyzed by Anchore")
 	ok, imageObj, err := isImageAnalyzed(image, client, authCtx)
 	if err != nil {
@@ -407,7 +412,7 @@ func validateAnalyzed(image string, client *anchore.APIClient, authCtx context.C
 }
 
 // Returns bool is passed policy, string digest, string message, and error
-func validatePolicy(image string, bundleId string, client *anchore.APIClient, authCtx context.Context) (bool, string, string, error) {
+func validatePolicy(image string, bundleId string, client anchoreImagesClient, authCtx context.Context) (bool, string, string, error) {
 	klog.Info("Performing validation that the image passes policy evaluation in Anchore")
 	ok, digest, err := CheckImage(image, bundleId, client, authCtx)
 	if err != nil {
@@ -433,7 +438,7 @@ func validatePolicy(image string, bundleId string, client *anchore.APIClient, au
  Analyze an image with optional wait time. If waitTime > 0 the call will block until either a timeout, which returns an error,
  or the analysis completes and the resulting record is returned.
 */
-func analyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
+func analyzeImage(imageRef string, client anchoreImagesClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
@@ -446,7 +451,7 @@ func analyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Co
 		CreatedAt:   time.Now().UTC().Round(time.Second),
 	}
 
-	imageList, _, err := client.ImagesApi.AddImage(authCtx, req, &opts)
+	imageList, _, err := client.AddImage(authCtx, req, &opts)
 
 	if err != nil {
 		return anchore.AnchoreImage{}, err
@@ -459,7 +464,7 @@ func analyzeImage(imageRef string, client *anchore.APIClient, authCtx context.Co
 	return imageList[0], nil
 }
 
-func isImageAnalyzed(imageRef string, client *anchore.APIClient, authCtx context.Context) (bool, anchore.AnchoreImage, error) {
+func isImageAnalyzed(imageRef string, client anchoreImagesClient, authCtx context.Context) (bool, anchore.AnchoreImage, error) {
 	anchoreImage, err := lookupImage(imageRef, client, authCtx)
 	if err != nil {
 		return false, anchore.AnchoreImage{}, err
@@ -471,13 +476,13 @@ func isImageAnalyzed(imageRef string, client *anchore.APIClient, authCtx context
 	return isAnalyzed, anchoreImage, nil
 }
 
-func lookupImage(imageRef string, client *anchore.APIClient, authCtx context.Context) (anchore.AnchoreImage, error) {
+func lookupImage(imageRef string, client anchoreImagesClient, authCtx context.Context) (anchore.AnchoreImage, error) {
 	localOptions := anchore.ListImagesOpts{}
 	localOptions.Fulltag = optional.NewString(imageRef)
 	klog.Info("Getting image from anchore engine. Reference=", imageRef)
 
 	// Find latest image with tag
-	images, _, err := client.ImagesApi.ListImages(authCtx, &localOptions)
+	images, _, err := client.ListImages(authCtx, &localOptions)
 	if err != nil {
 		return anchore.AnchoreImage{}, err
 	}
@@ -494,7 +499,7 @@ func lookupImage(imageRef string, client *anchore.APIClient, authCtx context.Con
 	return images[0], nil
 }
 
-func CheckImage(imageRef string, optionalPolicyId string, client *anchore.APIClient, authCtx context.Context) (bool, string, error) {
+func CheckImage(imageRef string, optionalPolicyId string, client anchoreImagesClient, authCtx context.Context) (bool, string, error) {
 	anchoreImage, err := lookupImage(imageRef, client, authCtx)
 	if err != nil {
 		return false, "", err
@@ -508,7 +513,7 @@ func CheckImage(imageRef string, optionalPolicyId string, client *anchore.APICli
 		localOptions.PolicyId = optional.NewString(optionalPolicyId)
 	}
 
-	evaluations, _, chkErr := client.ImagesApi.GetImagePolicyCheck(authCtx, digest, imageRef, &localOptions)
+	evaluations, _, chkErr := client.GetImagePolicyCheck(authCtx, digest, imageRef, &localOptions)
 	if chkErr != nil {
 		return false, digest, chkErr
 	}
@@ -536,7 +541,7 @@ func findResult(parsed_result map[string]interface{}) string {
 	return fmt.Sprintf("%s", "failed to get status")
 }
 
-func initClient(username string, password string, endpoint string) (*anchore.APIClient, context.Context, error) {
+func initClient(username string, password string, endpoint string) (anchoreImagesClient, context.Context, error) {
 	cfg := anchore.NewConfiguration()
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
 	cfg.BasePath = endpoint
@@ -547,7 +552,7 @@ func initClient(username string, password string, endpoint string) (*anchore.API
 	// TODO: timeouts
 	// ctx, _ := context.WithTimeout(context.Background(), 10 * time.Second)
 	auth := context.WithValue(context.Background(), anchore.ContextBasicAuth, anchore.BasicAuth{UserName: username, Password: password})
-	return aClient, auth, nil
+	return aClient.ImagesApi, auth, nil
 }
 
 func updateConfig(in fsnotify.Event) {
