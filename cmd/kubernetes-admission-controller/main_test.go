@@ -11,8 +11,11 @@ import (
 	"testing"
 	"time"
 
-	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
-	"github.com/antihax/optional"
+	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
+
+	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/admission"
+	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +26,7 @@ import (
 )
 
 func TestConfigUpdate(t *testing.T) {
-	//t.Skip("Disabled since it modifies local fs state")
-
-	var tmp ControllerConfiguration
+	var tmp admission.ControllerConfiguration
 	configFileName := filepath.Join("testdata", "test_conf_init.json")
 
 	src, ferr := os.Open(configFileName)
@@ -142,7 +143,7 @@ func TestConfig(t *testing.T) {
 
 	}
 	t.Log("Cfg State: ", v)
-	var tmp ControllerConfiguration
+	var tmp admission.ControllerConfiguration
 	err = v.Unmarshal(&tmp)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +153,7 @@ func TestConfig(t *testing.T) {
 		t.Log("Got config: ", string(cfg))
 	}
 
-	var tmp2 AnchoreAuthConfig
+	var tmp2 anchore.AuthConfiguration
 	v = viper.New()
 	configPath2 := filepath.Join("testdata", "test_creds.json")
 	v.SetConfigFile(configPath2)
@@ -184,7 +185,7 @@ func TestConfig(t *testing.T) {
 		t.Fatal("Could not read config")
 	}
 	t.Log("AuthCfg State: ", v)
-	tmp2 = AnchoreAuthConfig{}
+	tmp2 = anchore.AuthConfiguration{}
 	err = v.Unmarshal(&tmp2)
 	if err != nil {
 		t.Fatal(err)
@@ -205,55 +206,55 @@ func TestValidate(t *testing.T) {
 	testCases := []struct {
 		name                      string
 		requestedKubernetesObject interface{}
-		gateMode                  GateModeType
+		gateMode                  validation.Mode
 		expectedAllowedResponse   bool
 	}{
 		{
 			name:                      "policy gating, image exists, image passes",
 			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  PolicyGateMode,
+			gateMode:                  validation.PolicyGateMode,
 			expectedAllowedResponse:   true,
 		},
 		{
 			name:                      "policy gating, image exists, image fails",
 			requestedKubernetesObject: mockPod(failingImageName),
-			gateMode:                  PolicyGateMode,
+			gateMode:                  validation.PolicyGateMode,
 			expectedAllowedResponse:   false,
 		},
 		{
 			name:                      "policy gating, image doesn't exist",
 			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  PolicyGateMode,
+			gateMode:                  validation.PolicyGateMode,
 			expectedAllowedResponse:   false,
 		},
 		{
 			name:                      "analysis gating, image exists, image passes",
 			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  AnalysisGateMode,
+			gateMode:                  validation.AnalysisGateMode,
 			expectedAllowedResponse:   true,
 		},
 		{
 			name:                      "analysis gating, image doesn't exist",
 			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  AnalysisGateMode,
+			gateMode:                  validation.AnalysisGateMode,
 			expectedAllowedResponse:   false,
 		},
 		{
 			name:                      "analysis gating, image doesn't exist",
 			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  AnalysisGateMode,
+			gateMode:                  validation.AnalysisGateMode,
 			expectedAllowedResponse:   false,
 		},
 		{
 			name:                      "passive gating, image exists, image passes",
 			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  BreakGlassMode,
+			gateMode:                  validation.BreakGlassMode,
 			expectedAllowedResponse:   true,
 		},
 		{
 			name:                      "passive gating, image doesn't exist",
 			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  BreakGlassMode,
+			gateMode:                  validation.BreakGlassMode,
 			expectedAllowedResponse:   true,
 		},
 	}
@@ -264,7 +265,8 @@ func TestValidate(t *testing.T) {
 			anchoreService := mockAnchoreService()
 			defer anchoreService.Close()
 
-			hook := admissionHook{}
+			// TODO: need to update this struct with field values
+			hook := admission.Hook{}
 			controllerConfiguration = mockControllerConfiguration(testCase.gateMode, anchoreService)
 			authConfiguration = mockAnchoreAuthConfig()
 			admissionRequest := mockAdmissionRequest(t, testCase.requestedKubernetesObject)
@@ -293,23 +295,23 @@ func mockPod(image string) v1.Pod {
 	}
 }
 
-func mockControllerConfiguration(mode GateModeType, testServer *httptest.Server) ControllerConfiguration {
-	return ControllerConfiguration{
-		ValidatorConfiguration{true, true},
-		testServer.URL,
-		[]PolicySelector{
+func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) admission.ControllerConfiguration {
+	return admission.ControllerConfiguration{
+		Validator:       admission.ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
+		AnchoreEndpoint: testServer.URL,
+		PolicySelectors: []admission.PolicySelector{
 			{
-				ResourceSelector{ImageSelectorType, ".*", ".*"},
-				AnchoreClientConfiguration{"admin", ""},
-				mode,
+				ResourceSelector: admission.ResourceSelector{Type: admission.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
+				Mode:             mode,
+				PolicyReference:  anchore.ClientConfiguration{Username: "admin"},
 			},
 		},
 	}
 }
 
-func mockAnchoreAuthConfig() AnchoreAuthConfig {
-	return AnchoreAuthConfig{
-		[]AnchoreCredential{
+func mockAnchoreAuthConfig() anchore.AuthConfiguration {
+	return anchore.AuthConfiguration{
+		Users: []anchore.Credential{
 			{"admin", "password"},
 		},
 	}
@@ -488,125 +490,4 @@ func mockImageLookupResponse(imageName, imageDigest string) string {
   }
 ]
 `, imageDigest, imageDigest, imageName, imageDigest, imageName, imageDigest, imageName)
-}
-
-func TestLookupImage(t *testing.T) {
-	t.Log("Testing image lookup handling")
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/images" {
-			fmt.Fprint(w, "Ok")
-
-		} else {
-			switch r.URL.Query().Get("fulltag") {
-			case "docker.io/alpine:latest":
-				fmt.Fprintln(w, mockImageLookupResponse(passingImageName, passingImageDigest))
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, imageLookupError)
-			}
-		}
-	}))
-
-	defer ts.Close()
-
-	t.Log(fmt.Sprintf("URL: %s", ts.URL))
-
-	client, authCtx, err := initClient("admin", "foobar", ts.URL)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	localOpts := anchore.ListImagesOpts{}
-
-	var calls = [][]string{{"docker.io/alpine:latest", "analyzed"}, {"docker.io/alpine:3.8", "notfound"}}
-	var result string
-
-	for _, item := range calls {
-		t.Log(fmt.Sprintf("Checking %s", item))
-		localOpts.Fulltag = optional.NewString(item[0])
-		imageListing, _, err := client.ListImages(authCtx, &localOpts)
-		if err != nil {
-			if item[1] == "notfound" {
-				t.Log("Expected error response from server: ", err)
-			} else {
-				t.Fatal("Did not expect an error")
-			}
-			continue
-		}
-
-		fmt.Printf("Images: %v\n", imageListing)
-		result = imageListing[0].AnalysisStatus
-		fmt.Printf("Result: %s\n", result)
-		if result != item[1] {
-			t.Fatal(fmt.Sprintf("Expected %s but got %s", item[1], result))
-
-		}
-	}
-}
-
-/*
-Test the CheckImage function against some fake responses
- - Successful policy eval
- - Error during policy eval
- - Image not found
- - Bundle not found
-
-*/
-func TestCheckImage(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/images/goodfail/check":
-			fmt.Fprintln(w, goodFailResponse)
-		case "/images/goodpass/check":
-			fmt.Fprintln(w, goodPassResponse)
-		case "/images/imagenotfound/check":
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, imageNotFound)
-		case "/images/policynotfound/check":
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprint(w, imageNotFound)
-		default:
-			fmt.Fprint(w, r.URL.Path)
-		}
-	}))
-
-	defer ts.Close()
-
-	t.Log(fmt.Sprintf("URL: %s", ts.URL))
-
-	client, authCtx, err := initClient("admin", "foobar", ts.URL)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	localOpts := anchore.GetImagePolicyCheckOpts{}
-
-	var calls = [][]string{{"goodpass", "pass"}, {"goodfail", "fail"}, {"imagenotfound", "notfound"}, {"policynotfound", "notfound"}}
-	var result string
-
-	for _, item := range calls {
-
-		t.Log(fmt.Sprintf("Checking %s", item))
-		policyEvaluations, _, err := client.GetImagePolicyCheck(authCtx, item[0], "docker.io/alpine", &localOpts)
-		if err != nil {
-			if item[1] == "notfound" {
-				t.Log("Expected error response from server: ", err)
-
-			} else {
-				t.Fatal(t, "Did not expect an error")
-			}
-			continue
-		}
-
-		fmt.Printf("Policy evaluation: %s\n", policyEvaluations)
-		result = getPolicyEvaluationStatus(policyEvaluations[0])
-		fmt.Printf("Result: %s\n", result)
-		if result != item[1] {
-			t.Fatal(fmt.Sprintf("Expected %s but got %s", item[1], result))
-		}
-	}
 }
