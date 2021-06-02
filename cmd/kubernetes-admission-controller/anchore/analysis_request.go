@@ -1,6 +1,8 @@
 package anchore
 
-import "k8s.io/klog"
+import (
+	"k8s.io/klog"
+)
 
 type analysisRequest struct {
 	imageProvider  ImageProvider

@@ -19,8 +19,10 @@ func (q *AnalysisRequestQueue) ImportRequestsFrom(other AnalysisRequestQueue) {
 	q.requests = append(q.requests, other.requests...)
 }
 
-func (q AnalysisRequestQueue) DispatchAll() {
+func (q *AnalysisRequestQueue) DispatchAll() {
 	for _, request := range q.requests {
 		request.dispatch()
 	}
+
+	q.requests = nil
 }
