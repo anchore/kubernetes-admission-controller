@@ -7,6 +7,6 @@ import (
 
 type PolicySelector struct {
 	ResourceSelector ResourceSelector
-	PolicyReference  anchore.ClientConfiguration
 	Mode             validation.Mode
+	PolicyReference  anchore.ClientConfiguration
 }

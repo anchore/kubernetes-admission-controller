@@ -9,7 +9,7 @@ import (
 )
 
 type ResourceSelector struct {
-	ResourceType       ResourceSelectorType // The resource to do selection on, supported: pod, namespace
+	Type               ResourceSelectorType // The resource to do selection on, supported: pod, namespace
 	SelectorKeyRegex   string               // The regex to select a matching key
 	SelectorValueRegex string               // The regex to apply to the label/annotation of the specified resource type
 }

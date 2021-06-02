@@ -16,20 +16,16 @@ type GateConfiguration struct {
 func determineGateConfiguration(
 	meta metav1.ObjectMeta,
 	imageReference string,
-	config ControllerConfiguration,
+	policySelectors []PolicySelector,
 	clientset kubernetes.Clientset,
 ) *GateConfiguration {
-	for _, policySelector := range config.PolicySelectors {
+	for _, policySelector := range policySelectors {
 		klog.Info("Checking selector ", "selector=", policySelector)
 
-		selectedMeta, err := selectObjectMetaForMatching(policySelector.ResourceSelector, meta, clientset)
-		if err != nil {
-			klog.Error("Error checking selector, skipping err=", err)
-			continue
-		}
+		selectedObjectMeta := selectObjectMetaForMatching(policySelector.ResourceSelector.Type, meta, clientset)
 
-		if selectedMeta != nil {
-			if match := doesObjectMatchResourceSelector(selectedMeta, policySelector.ResourceSelector); match {
+		if selectedObjectMeta != nil {
+			if match := doesObjectMatchResourceSelector(selectedObjectMeta, policySelector.ResourceSelector); match {
 				klog.Info("Matched selector rule=", policySelector)
 
 				return &GateConfiguration{
@@ -54,23 +50,22 @@ func determineGateConfiguration(
 
 // selectObjectMetaForMatching gets the correct set of ObjectMeta for comparison,
 // or nil if not a selector that uses ObjectMeta.
-func selectObjectMetaForMatching(selector ResourceSelector, objectMeta metav1.ObjectMeta,
-	clientset kubernetes.Clientset) (*metav1.ObjectMeta,
-	error) {
+func selectObjectMetaForMatching(resourceSelectorType ResourceSelectorType, objectMeta metav1.ObjectMeta, clientset kubernetes.Clientset) *metav1.ObjectMeta {
 	klog.Info("Resolving the resource to use for selection")
-	switch selector.ResourceType {
+	switch resourceSelectorType {
 	case GeneralResourceSelectorType:
-		return &objectMeta, nil
+		return &objectMeta
 	case NamespaceResourceSelectorType:
-		nsFound, err := clientset.CoreV1().Namespaces().Get(objectMeta.Namespace, metav1.GetOptions{})
+		namespace, err := clientset.CoreV1().Namespaces().Get(objectMeta.Namespace, metav1.GetOptions{})
 		if err != nil {
-			return nil, err
+			klog.Error(err)
+			return nil
 		}
 
-		return &nsFound.ObjectMeta, nil
+		return &namespace.ObjectMeta
 	case ImageResourceSelectorType:
-		return nil, nil
+		return nil
 	default:
-		return nil, nil
+		return nil
 	}
 }

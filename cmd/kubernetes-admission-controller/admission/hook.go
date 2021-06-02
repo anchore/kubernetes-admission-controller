@@ -137,7 +137,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config, h.Clientset)
+	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, h.Clientset)
 	if gateConfiguration == nil {
 		// No rule matched, so skip this image
 		message := "no selector match found"
