@@ -124,13 +124,32 @@ func getPolicyEvaluationStatus(policyEvaluation map[string]interface{}) string {
 	// Looks through a parsed result for the status value, assumes this result is for a single image
 	digest := reflect.ValueOf(policyEvaluation).MapKeys()[0].String()
 	tag := reflect.ValueOf(policyEvaluation[digest]).MapKeys()[0]
+
 	result := reflect.ValueOf(reflect.ValueOf(policyEvaluation[digest]).MapIndex(tag).Interface()).Index(0).Elem()
 	for _, key := range result.MapKeys() {
-		if key.Interface() == "status" {
-			status := result.MapIndex(key).String()
+		if key.String() == "status" {
+			statusValue := result.MapIndex(key)
+			status := fmt.Sprintf("%s", statusValue)
 			return status
 		}
 	}
 
 	return ""
 }
+
+const goodPassResponse = `
+[
+  {
+    "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
+      "docker.io/alpine:latest": [
+        {
+          "detail": {},
+          "last_evaluation": "2018-12-03T17:46:13Z",
+          "policyId": "2c53a13c-1765-11e8-82ef-23527761d060",
+          "status": "pass"
+        }
+      ]
+    }
+  }
+]
+`
