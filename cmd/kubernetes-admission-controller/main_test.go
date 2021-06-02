@@ -321,10 +321,7 @@ func TestMatchImageResource(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			found, err := matchImageResource(testCase.selectorValueRegex, testCase.image)
-			if err != nil {
-				t.Fatal(err)
-			}
+			found := doesMatchImageResource(testCase.selectorValueRegex, testCase.image)
 			testCase.assertion(t, found)
 		})
 	}
@@ -430,8 +427,8 @@ func TestValidate(t *testing.T) {
 			defer anchoreService.Close()
 
 			hook := admissionHook{}
-			config = mockControllerConfiguration(testCase.gateMode, anchoreService)
-			authConfig = mockAnchoreAuthConfig()
+			controllerConfiguration = mockControllerConfiguration(testCase.gateMode, anchoreService)
+			authConfiguration = mockAnchoreAuthConfig()
 			admissionRequest := mockAdmissionRequest(t, testCase.requestedKubernetesObject)
 
 			// act
@@ -768,7 +765,7 @@ func TestCheckImage(t *testing.T) {
 		}
 
 		fmt.Printf("Policy evaluation: %s\n", policyEvaluations)
-		result = findResult(policyEvaluations[0])
+		result = getPolicyEvaluationStatus(policyEvaluations[0])
 		fmt.Printf("Result: %s\n", result)
 		if result != item[1] {
 			t.Fatal(fmt.Sprintf("Expected %s but got %s", item[1], result))
