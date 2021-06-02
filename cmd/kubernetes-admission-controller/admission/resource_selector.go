@@ -14,23 +14,6 @@ type ResourceSelector struct {
 	SelectorValueRegex string               // The regex to apply to the label/annotation of the specified resource type
 }
 
-func doesKeyValuePairMatchResourceSelector(key, value string, resourceSelector ResourceSelector) bool {
-	doesMatch, err := regexp.MatchString(resourceSelector.SelectorKeyRegex, key)
-	if err != nil {
-		klog.Error("Error evaluating regexp key= ", key, " regex = ", resourceSelector.SelectorKeyRegex, " err=", err)
-	}
-	if !doesMatch {
-		return false
-	}
-
-	doesMatch, err = regexp.MatchString(resourceSelector.SelectorValueRegex, value)
-	if err != nil {
-		klog.Error("Error evaluating regexp ", " value = ", value, " regex = ", resourceSelector.SelectorValueRegex,
-			" err=", err)
-	}
-	return doesMatch
-}
-
 func doesObjectMatchResourceSelector(object *metav1.ObjectMeta, resourceSelector ResourceSelector) bool {
 	mapArray := []map[string]string{object.Labels, object.Annotations}
 	for _, kvMap := range mapArray {
@@ -51,6 +34,23 @@ func doesObjectMatchResourceSelector(object *metav1.ObjectMeta, resourceSelector
 	}
 
 	return false
+}
+
+func doesKeyValuePairMatchResourceSelector(key, value string, resourceSelector ResourceSelector) bool {
+	doesMatch, err := regexp.MatchString(resourceSelector.SelectorKeyRegex, key)
+	if err != nil {
+		klog.Error("Error evaluating regexp key= ", key, " regex = ", resourceSelector.SelectorKeyRegex, " err=", err)
+	}
+	if !doesMatch {
+		return false
+	}
+
+	doesMatch, err = regexp.MatchString(resourceSelector.SelectorValueRegex, value)
+	if err != nil {
+		klog.Error("Error evaluating regexp ", " value = ", value, " regex = ", resourceSelector.SelectorValueRegex,
+			" err=", err)
+	}
+	return doesMatch
 }
 
 func doesMatchImageResource(regex string, imageReference string) bool {
