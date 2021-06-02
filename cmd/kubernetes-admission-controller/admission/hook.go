@@ -49,9 +49,11 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 	result, analysisRequestQueue := h.evaluateKubernetesObject(request)
 	analysisRequestQueue.DispatchAll()
 
-	return responseFromValidationResult(request, result)
+	return response(request, result)
 }
 
+// evaluateKubernetesObject looks for container image references in the requested object and performs validation
+// based on user-supplied configuration.
 func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (validation.Result, anchore.AnalysisRequestQueue) {
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
@@ -97,6 +99,8 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 	return result, requestQueue
 }
 
+// evaluatePod looks for container image references in the pod and performs validation
+// based on user-supplied configuration.
 func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validation.Result,
 	anchore.AnalysisRequestQueue) {
 	requestQueue := anchore.NewAnalysisRequestQueue()
@@ -127,6 +131,7 @@ func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validatio
 	return result, requestQueue
 }
 
+// evaluateImage performs validation on the given container image based on user-supplied configuration.
 func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (validation.Result, anchore.AnalysisRequestQueue) {
 	klog.Info("evaluating selectors for image=", imageReference)
 

@@ -6,7 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func responseFromValidationResult(request v1beta1.AdmissionRequest, result validation.Result) *v1beta1.AdmissionResponse {
+func response(request v1beta1.AdmissionRequest, result validation.Result) *v1beta1.AdmissionResponse {
 	return &v1beta1.AdmissionResponse{
 		Allowed: result.IsValid,
 		UID:     request.UID,

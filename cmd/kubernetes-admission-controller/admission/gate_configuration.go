@@ -14,7 +14,7 @@ type GateConfiguration struct {
 }
 
 func determineGateConfiguration(
-	objectMeta metav1.ObjectMeta,
+	meta metav1.ObjectMeta,
 	imageReference string,
 	config ControllerConfiguration,
 	clientset kubernetes.Clientset,
@@ -22,14 +22,14 @@ func determineGateConfiguration(
 	for _, policySelector := range config.PolicySelectors {
 		klog.Info("Checking selector ", "selector=", policySelector)
 
-		meta, err := selectObjectMetaForMatching(policySelector.ResourceSelector, objectMeta, clientset)
+		selectedMeta, err := selectObjectMetaForMatching(policySelector.ResourceSelector, meta, clientset)
 		if err != nil {
 			klog.Error("Error checking selector, skipping err=", err)
 			continue
 		}
 
-		if meta != nil {
-			if match := doesObjectMatchResourceSelector(meta, policySelector.ResourceSelector); match {
+		if selectedMeta != nil {
+			if match := doesObjectMatchResourceSelector(selectedMeta, policySelector.ResourceSelector); match {
 				klog.Info("Matched selector rule=", policySelector)
 
 				return &GateConfiguration{
