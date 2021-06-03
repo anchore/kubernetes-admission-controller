@@ -3,6 +3,8 @@ package admission
 import (
 	"fmt"
 
+	"github.com/openshift/generic-admission-server/pkg/cmd"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "k8s.io/api/core/v1"
@@ -20,6 +22,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
 )
+
+// Enforcing compliance with the cmd.ValidatingAdmissionHook interface
+var _ cmd.ValidatingAdmissionHook = (*Hook)(nil)
 
 type Hook struct {
 	Config      ControllerConfiguration
@@ -149,7 +154,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 		return validation.Result{IsValid: true, Message: message, ImageDigest: ""}, requestQueue
 	}
 
-	imageProvider := anchore.GetImageProvider(
+	imageBackend := anchore.GetImageBackend(
 		h.AnchoreAuth,
 		gateConfiguration.PolicyReference.Username,
 		h.Config.AnchoreEndpoint,
@@ -166,17 +171,17 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	switch gateConfiguration.Mode {
 	case validation.PolicyGateMode:
-		result = validation.Policy(imageProvider, imageReference, gateConfiguration.PolicyReference.PolicyBundleId)
+		result = validation.Policy(imageBackend, imageReference, gateConfiguration.PolicyReference.PolicyBundleId)
 
 	case validation.AnalysisGateMode:
-		result = validation.Analysis(imageProvider, imageReference)
+		result = validation.Analysis(imageBackend, imageReference)
 
 	case validation.BreakGlassMode:
 		result = validation.BreakGlass()
 	}
 
 	if shouldRequestAnalysis(result, h.Config) {
-		requestQueue.Add(imageProvider, imageReference)
+		requestQueue.Add(imageBackend, imageReference)
 	}
 
 	return result, requestQueue

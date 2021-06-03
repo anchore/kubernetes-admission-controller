@@ -7,7 +7,8 @@ import (
 	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
 )
 
-// imagesClient abstracts the Anchore Go client and exposes only the client operations needed by this application.
+// imagesClient abstracts the Anchore Go client's images service and exposes
+// only the client operations needed by this application.
 type imagesClient interface {
 	AddImage(
 		ctx context.Context,

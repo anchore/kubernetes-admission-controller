@@ -13,12 +13,12 @@ import (
 	"k8s.io/klog"
 )
 
-type authenticatedImageProvider struct {
+type anchoreAPIImageBackend struct {
 	client imagesClient
 	auth   context.Context
 }
 
-func newAuthenticatedImageProvider(username, password, endpoint string) authenticatedImageProvider {
+func newAnchoreAPIImageBackend(username, password, endpoint string) anchoreAPIImageBackend {
 	cfg := anchore.NewConfiguration()
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
 	cfg.BasePath = endpoint
@@ -29,13 +29,13 @@ func newAuthenticatedImageProvider(username, password, endpoint string) authenti
 	// TODO: context timeouts
 	auth := context.WithValue(context.Background(), anchore.ContextBasicAuth, anchore.BasicAuth{UserName: username, Password: password})
 
-	return authenticatedImageProvider{
+	return anchoreAPIImageBackend{
 		client: client.ImagesApi,
 		auth:   auth,
 	}
 }
 
-func (p authenticatedImageProvider) Get(imageReference string) (Image, error) {
+func (p anchoreAPIImageBackend) Get(imageReference string) (Image, error) {
 	localOptions := anchore.ListImagesOpts{}
 	localOptions.Fulltag = optional.NewString(imageReference)
 	klog.Info("Getting image from anchore engine. Reference=", imageReference)
@@ -67,7 +67,7 @@ func (p authenticatedImageProvider) Get(imageReference string) (Image, error) {
 	}, nil
 }
 
-func (p authenticatedImageProvider) Analyze(imageReference string) error {
+func (p anchoreAPIImageBackend) Analyze(imageReference string) error {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
@@ -100,7 +100,7 @@ func (p authenticatedImageProvider) Analyze(imageReference string) error {
 	return nil
 }
 
-func (p authenticatedImageProvider) DoesPolicyCheckPass(imageDigest, imageTag, policyBundleID string) (bool, error) {
+func (p anchoreAPIImageBackend) DoesPolicyCheckPass(imageDigest, imageTag, policyBundleID string) (bool, error) {
 	localOptions := anchore.GetImagePolicyCheckOpts{}
 	localOptions.Interactive = optional.NewBool(true)
 	if policyBundleID != "" {
@@ -136,20 +136,3 @@ func getPolicyEvaluationStatus(policyEvaluation map[string]interface{}) string {
 
 	return ""
 }
-
-const goodPassResponse = `
-[
-  {
-    "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b": {
-      "docker.io/alpine:latest": [
-        {
-          "detail": {},
-          "last_evaluation": "2018-12-03T17:46:13Z",
-          "policyId": "2c53a13c-1765-11e8-82ef-23527761d060",
-          "status": "pass"
-        }
-      ]
-    }
-  }
-]
-`

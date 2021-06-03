@@ -22,6 +22,7 @@ func ForAdmissionRequest(request v1beta1.AdmissionRequest) Extractor {
 	return extractor
 }
 
+// extractors is a mapping of supported kinds of resources to available Extractors.
 var extractors = map[metav1.GroupVersionKind]Extractor{
 	metav1.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,

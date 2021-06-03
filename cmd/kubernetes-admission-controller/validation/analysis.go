@@ -10,8 +10,8 @@ import (
 )
 
 // Analysis performs the "analysis mode" validation and returns a Result.
-func Analysis(imageProvider anchore.ImageProvider, imageReference string) Result {
-	if imageProvider == nil {
+func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
+	if imageBackend == nil {
 		message := "No valid policy reference with valid credentials found. Failing validation"
 		klog.Error(message)
 		return Result{IsValid: false, Message: message}
@@ -19,7 +19,7 @@ func Analysis(imageProvider anchore.ImageProvider, imageReference string) Result
 
 	klog.Info("Performing validation that the image is analyzed by Anchore")
 
-	image, err := imageProvider.Get(imageReference)
+	image, err := imageBackend.Get(imageReference)
 	if err != nil {
 		if errors.Is(err, anchore.ErrImageDoesNotExist) {
 			message := fmt.Sprintf("Image %q is not analyzed", imageReference)

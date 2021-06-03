@@ -9,8 +9,8 @@ import (
 )
 
 // Policy performs the "policy mode" validation and returns a Result.
-func Policy(imageProvider anchore.ImageProvider, imageReference, policyBundleID string) Result {
-	analysisValidationResult := Analysis(imageProvider, imageReference)
+func Policy(imageBackend anchore.ImageBackend, imageReference, policyBundleID string) Result {
+	analysisValidationResult := Analysis(imageBackend, imageReference)
 	if analysisValidationResult.IsValid == false {
 		return analysisValidationResult
 	}
@@ -18,7 +18,7 @@ func Policy(imageProvider anchore.ImageProvider, imageReference, policyBundleID 
 	klog.Info("Performing validation that the image passes policy evaluation in Anchore")
 
 	imageDigest := analysisValidationResult.ImageDigest
-	doesCheckPass, err := imageProvider.DoesPolicyCheckPass(imageDigest, imageReference, policyBundleID)
+	doesCheckPass, err := imageBackend.DoesPolicyCheckPass(imageDigest, imageReference, policyBundleID)
 	if err != nil {
 		message := fmt.Sprintf("error checking if policy check passes for image %q: %s", imageDigest, err)
 		klog.Error(message)

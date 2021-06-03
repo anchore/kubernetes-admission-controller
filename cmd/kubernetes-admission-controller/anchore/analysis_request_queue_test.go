@@ -4,8 +4,8 @@ import "testing"
 
 func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 	const imageReference = "some-image:latest"
-	imageProvider := new(mockImageProvider)
-	imageProvider.On("Analyze", imageReference).Return(nil)
+	imageBackend := new(mockImageBackend)
+	imageBackend.On("Analyze", imageReference).Return(nil)
 
 	queue := NewAnalysisRequestQueue()
 
@@ -13,26 +13,26 @@ func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 
 	// No requests queued yet
 	queue.DispatchAll()
-	imageProvider.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
+	imageBackend.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
 
 	// Adding requests to queue via `Add`
-	queue.Add(imageProvider, imageReference)
-	queue.Add(imageProvider, imageReference)
+	queue.Add(imageBackend, imageReference)
+	queue.Add(imageBackend, imageReference)
 	expectedAnalyzeCalls += 2
 
 	// Two requests queued
 	queue.DispatchAll()
-	imageProvider.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
+	imageBackend.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
 
 	// Queue should have been cleared in previous `DispatchAll` call
 	queue.DispatchAll()
-	imageProvider.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
+	imageBackend.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
 
 	// Adding requests to queue via `ImportRequestsFrom`
 	otherQueue := AnalysisRequestQueue{
 		requests: []analysisRequest{
 			{
-				imageProvider:  imageProvider,
+				imageBackend:   imageBackend,
 				imageReference: imageReference,
 			},
 		},
@@ -42,5 +42,5 @@ func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 	expectedAnalyzeCalls += 1
 
 	queue.DispatchAll()
-	imageProvider.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
+	imageBackend.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
 }
