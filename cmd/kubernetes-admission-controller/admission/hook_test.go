@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	appsV1 "k8s.io/api/apps/v1"
+
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
@@ -20,84 +22,108 @@ import (
 
 func TestHook_Validate(t *testing.T) {
 	testCases := []struct {
-		name                      string
-		validationMode            validation.Mode
-		requestedKubernetesObject interface{}
-		isExpectedToBeAllowed     bool
+		name                  string
+		validationMode        validation.Mode
+		admissionRequest      v1beta1.AdmissionRequest
+		isExpectedToBeAllowed bool
 	}{
 		{
-			name:                      "policy mode: image exists, image passes",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, passingImageName),
-			isExpectedToBeAllowed:     true,
+			name:                  "policy mode: image exists, image passes",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			isExpectedToBeAllowed: true,
 		},
 		{
-			name:                      "policy mode: image exists, image fails",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, failingImageName),
-			isExpectedToBeAllowed:     false,
+			name:                  "policy mode: image exists, image fails",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, failingImageName),
+			isExpectedToBeAllowed: false,
 		},
 		{
-			name:                      "policy mode: multiple images that all pass",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, passingImageName, passingImageName, passingImageName),
-			isExpectedToBeAllowed:     true,
+			name:                  "policy mode: multiple images that all pass",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, passingImageName, passingImageName),
+			isExpectedToBeAllowed: true,
 		},
 		{
-			name:                      "policy mode: first image passes, second image fails",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, passingImageName, failingImageName),
-			isExpectedToBeAllowed:     false,
+			name:                  "policy mode: first image passes, second image fails",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, failingImageName),
+			isExpectedToBeAllowed: false,
 		},
 		{
-			name:                      "policy mode: first image fails, second image passes",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, failingImageName, passingImageName),
-			isExpectedToBeAllowed:     false,
-		},
-
-		{
-			name:                      "policy mode: image doesn't exist",
-			validationMode:            validation.PolicyGateMode,
-			requestedKubernetesObject: mockPod(t, nonexistentImageName),
-			isExpectedToBeAllowed:     false,
-		},
-		{
-			name:                      "analysis mode: image has been analyzed",
-			validationMode:            validation.AnalysisGateMode,
-			requestedKubernetesObject: mockPod(t, passingImageName),
-			isExpectedToBeAllowed:     true,
-		},
-		{
-			name:                      "analysis mode: image doesn't exist",
-			validationMode:            validation.AnalysisGateMode,
-			requestedKubernetesObject: mockPod(t, nonexistentImageName),
-			isExpectedToBeAllowed:     false,
-		},
-		{
-			name:                      "analysis mode: first image doesn't exist, second image has been analyzed",
-			validationMode:            validation.AnalysisGateMode,
-			requestedKubernetesObject: mockPod(t, nonexistentImageName, passingImageName),
-			isExpectedToBeAllowed:     false,
-		},
-		{
-			name:                      "analysis mode: first image has been analyzed, second image doesn't exist",
-			validationMode:            validation.AnalysisGateMode,
-			requestedKubernetesObject: mockPod(t, passingImageName, nonexistentImageName),
-			isExpectedToBeAllowed:     false,
+			name:                  "policy mode: first image fails, second image passes",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, failingImageName, passingImageName),
+			isExpectedToBeAllowed: false,
 		},
 
 		{
-			name:                      "passive mode: image exists, image passes",
-			validationMode:            validation.BreakGlassMode,
-			requestedKubernetesObject: mockPod(t, passingImageName),
-			isExpectedToBeAllowed:     true,
+			name:                  "policy mode: image doesn't exist",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			isExpectedToBeAllowed: false,
 		},
 		{
-			name:                      "passive mode: image doesn't exist",
-			validationMode:            validation.BreakGlassMode,
-			requestedKubernetesObject: mockPod(t, nonexistentImageName),
-			isExpectedToBeAllowed:     true,
+			name:                  "analysis mode: image has been analyzed",
+			validationMode:        validation.AnalysisGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "analysis mode: image doesn't exist",
+			validationMode:        validation.AnalysisGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "analysis mode: first image doesn't exist, second image has been analyzed",
+			validationMode:        validation.AnalysisGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName, passingImageName),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "analysis mode: first image has been analyzed, second image doesn't exist",
+			validationMode:        validation.AnalysisGateMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, nonexistentImageName),
+			isExpectedToBeAllowed: false,
+		},
+
+		{
+			name:                  "passive mode: image exists, image passes",
+			validationMode:        validation.BreakGlassMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "passive mode: image doesn't exist",
+			validationMode:        validation.BreakGlassMode,
+			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: deployment with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: deployment with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: deployment with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: deployment with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
 		},
 	}
 
@@ -112,10 +138,8 @@ func TestHook_Validate(t *testing.T) {
 				Clientset:   kubernetes.Clientset{},
 				AnchoreAuth: mockAnchoreAuthConfig(),
 			}
-			admissionRequest := mockAdmissionRequest(t, testCase.requestedKubernetesObject)
-
 			// act
-			admissionResponse := hook.Validate(&admissionRequest)
+			admissionResponse := hook.Validate(&testCase.admissionRequest)
 
 			// assert
 			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
@@ -123,7 +147,7 @@ func TestHook_Validate(t *testing.T) {
 	}
 }
 
-func mockPod(t *testing.T, images ...string) v1.Pod {
+func newPod(t *testing.T, images ...string) v1.Pod {
 	t.Helper()
 
 	if len(images) == 0 {
@@ -141,9 +165,25 @@ func mockPod(t *testing.T, images ...string) v1.Pod {
 	}
 
 	return v1.Pod{
+		ObjectMeta: testPodObjectMeta,
 		Spec: v1.PodSpec{
 			Containers: containers,
 		},
+	}
+}
+
+func newDeployment(t *testing.T, pod v1.Pod) appsV1.Deployment {
+	t.Helper()
+
+	deploymentSpec := appsV1.DeploymentSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.Deployment{
+		ObjectMeta: testDeploymentObjectMeta,
+		Spec:       deploymentSpec,
 	}
 }
 
@@ -169,7 +209,21 @@ func mockAnchoreAuthConfig() anchore.AuthConfiguration {
 	}
 }
 
-func mockAdmissionRequest(t *testing.T, requestedObject interface{}) v1beta1.AdmissionRequest {
+func mockAdmissionRequestForPod(t *testing.T, images ...string) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	pod := newPod(t, images...)
+	return mockAdmissionRequest(t, pod, podKind)
+}
+
+func mockAdmissionRequestForDeployment(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	deployment := newDeployment(t, pod)
+	return mockAdmissionRequest(t, deployment, deploymentKind)
+}
+
+func mockAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
 
 	marshalledObject, err := json.Marshal(requestedObject)
@@ -178,9 +232,8 @@ func mockAdmissionRequest(t *testing.T, requestedObject interface{}) v1beta1.Adm
 	}
 
 	return v1beta1.AdmissionRequest{
-		UID: "abc123",
-		Kind: metav1.GroupVersionKind{Group: v1.GroupName, Version: v1.SchemeGroupVersion.Version,
-			Kind: "Pod"},
+		UID:         "abc123",
+		Kind:        kind,
 		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},
 		SubResource: "someresource",
 		Name:        "somename",
@@ -222,24 +275,6 @@ func mockAnchoreService() *httptest.Server {
 		fmt.Fprint(w, imageNotFound)
 	}))
 }
-
-const (
-	passingImageName     = "alpine"
-	failingImageName     = "bad-alpine"
-	nonexistentImageName = "ubuntu"
-	passingImageDigest   = "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b"
-	failingImageDigest   = "sha256:6666666666666666666666666666666666666666666666666666666666666666"
-	passingStatus        = "pass"
-	failingStatus        = "fail"
-)
-
-const imageNotFound = `
-{
-  "message": "could not get image record from anchore"
-}
-`
-
-const imageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
 
 func urlForImageCheck(imageDigest string) string {
 	return fmt.Sprintf("/images/%s/check", imageDigest)
@@ -309,3 +344,55 @@ func mockImageLookupResponse(imageName, imageDigest string) string {
 ]
 `, imageDigest, imageDigest, imageName, imageDigest, imageName, imageDigest, imageName)
 }
+
+var (
+	podKind = metav1.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "Pod",
+	}
+	deploymentKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "Deployment",
+	}
+	testPodObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_pod",
+		Namespace: "namespace1",
+	}
+	testDeploymentObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_deployment",
+		Namespace: "namespace1",
+	}
+)
+
+const (
+	passingImageName     = "alpine"
+	failingImageName     = "bad-alpine"
+	nonexistentImageName = "ubuntu"
+	passingImageDigest   = "sha256:02892826401a9d18f0ea01f8a2f35d328ef039db4e1edcc45c630314a0457d5b"
+	failingImageDigest   = "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+	passingStatus        = "pass"
+	failingStatus        = "fail"
+)
+
+const (
+	imageNotFound = `
+{
+  "message": "could not get image record from anchore"
+}
+`
+	imageLookupError = `{"detail": {}, "httpcode": 404, "message": "image data not found in DB" }`
+)
