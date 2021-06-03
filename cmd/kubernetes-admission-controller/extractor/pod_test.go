@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func TestPodExtractor(t *testing.T) {
+func TestFromPod(t *testing.T) {
 	// arrange
 	pod := v1.Pod{
 		ObjectMeta: testPodObjectMeta,
@@ -19,7 +19,7 @@ func TestPodExtractor(t *testing.T) {
 	request := mockAdmissionRequestFromPod(t, pod)
 
 	// act
-	actualMeta, actualPodSpecs, err := podExtractor(request)
+	actualMeta, actualPodSpecs, err := fromPod(request)
 
 	// assert
 	assert.NoError(t, err)

@@ -13,7 +13,7 @@ import (
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
 
-	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/kubernetes"
+	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/extractor"
 
 	"k8s.io/api/admission/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -57,7 +57,7 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (validation.Result, anchore.AnalysisRequestQueue) {
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	extractFunc := kubernetes.ExtractorForObjectRequest(request)
+	extractFunc := extractor.ForAdmissionRequest(request)
 	if extractFunc == nil {
 		message := fmt.Sprintf("unsupported admission request kind %q", request.Kind.Kind)
 		klog.Info(message)

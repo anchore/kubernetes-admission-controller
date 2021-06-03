@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"encoding/json"
@@ -10,10 +10,10 @@ import (
 )
 
 // Enforcing compliance with the Extractor type
-var _ Extractor = deploymentExtractor
+var _ Extractor = fromDeployment
 
-// deploymentExtractor returns the object metadata and included v1.PodSpecs for the requested Deployment object.
-func deploymentExtractor(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
+// fromDeployment returns the extracted object metadata and included v1.PodSpecs from the Deployment admission request.
+func fromDeployment(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var deployment appsV1.Deployment
 	err := json.Unmarshal(admissionRequest.Object.Raw, &deployment)
 	if err != nil {

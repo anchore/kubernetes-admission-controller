@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func TestDeploymentExtractor(t *testing.T) {
+func TestFromDeployment(t *testing.T) {
 	// arrange
 	deployment := appsV1.Deployment{
 		ObjectMeta: testDeploymentObjectMeta,
@@ -20,7 +20,7 @@ func TestDeploymentExtractor(t *testing.T) {
 	request := mockAdmissionRequestFromDeployment(t, deployment)
 
 	// act
-	actualMeta, actualPodSpecs, err := deploymentExtractor(request)
+	actualMeta, actualPodSpecs, err := fromDeployment(request)
 
 	// assert
 	assert.NoError(t, err)

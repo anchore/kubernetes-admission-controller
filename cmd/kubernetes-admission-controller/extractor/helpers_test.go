@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"encoding/json"

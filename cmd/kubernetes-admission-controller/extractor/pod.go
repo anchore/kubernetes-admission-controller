@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"encoding/json"
@@ -9,10 +9,10 @@ import (
 )
 
 // Enforcing compliance with the Extractor type
-var _ Extractor = podExtractor
+var _ Extractor = fromPod
 
-// podExtractor returns the object metadata and v1.PodSpec for the requested Pod object.
-func podExtractor(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
+// fromPod returns the extracted object metadata and v1.PodSpec from the Pod admission request.
+func fromPod(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var pod v1.Pod
 	err := json.Unmarshal(admissionRequest.Object.Raw, &pod)
 	if err != nil {

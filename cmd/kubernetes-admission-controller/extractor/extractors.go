@@ -1,4 +1,4 @@
-package kubernetes
+package extractor
 
 import (
 	"k8s.io/api/admission/v1beta1"
@@ -11,9 +11,9 @@ import (
 // an object and return that object's metadata and any PodSpecs contained within the object.
 type Extractor func(v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error)
 
-// ExtractorForObjectRequest returns an Extractor function for the Kubernetes object contained in the given
-// AdmissionRequest.
-func ExtractorForObjectRequest(request v1beta1.AdmissionRequest) Extractor {
+// ForAdmissionRequest returns an Extractor function for the Kubernetes object contained in the given
+// AdmissionRequest. If no Extractor is available for the given admission request, ForAdmissionRequest returns nil.
+func ForAdmissionRequest(request v1beta1.AdmissionRequest) Extractor {
 	extractor, found := extractors[request.Kind]
 	if !found {
 		return nil
@@ -27,10 +27,10 @@ var extractors = map[metav1.GroupVersionKind]Extractor{
 		Group:   v1.SchemeGroupVersion.Group,
 		Version: v1.SchemeGroupVersion.Version,
 		Kind:    "Pod",
-	}: podExtractor,
+	}: fromPod,
 	metav1.GroupVersionKind{
 		Group:   appsV1.SchemeGroupVersion.Group,
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "Deployment",
-	}: deploymentExtractor,
+	}: fromDeployment,
 }
