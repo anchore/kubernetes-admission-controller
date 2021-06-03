@@ -30,99 +30,99 @@ func TestHook_Validate(t *testing.T) {
 		{
 			name:                  "policy mode: image exists, image passes",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "policy mode: image exists, image fails",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, failingImageName),
+			admissionRequest:      podAdmissionRequest(t, failingImageName),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "policy mode: multiple images that all pass",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, passingImageName, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName, passingImageName, passingImageName),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "policy mode: first image passes, second image fails",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, failingImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName, failingImageName),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "policy mode: first image fails, second image passes",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, failingImageName, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, failingImageName, passingImageName),
 			isExpectedToBeAllowed: false,
 		},
 
 		{
 			name:                  "policy mode: image doesn't exist",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			admissionRequest:      podAdmissionRequest(t, nonexistentImageName),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "analysis mode: image has been analyzed",
 			validationMode:        validation.AnalysisGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "analysis mode: image doesn't exist",
 			validationMode:        validation.AnalysisGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			admissionRequest:      podAdmissionRequest(t, nonexistentImageName),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "analysis mode: first image doesn't exist, second image has been analyzed",
 			validationMode:        validation.AnalysisGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, nonexistentImageName, passingImageName),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "analysis mode: first image has been analyzed, second image doesn't exist",
 			validationMode:        validation.AnalysisGateMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName, nonexistentImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName, nonexistentImageName),
 			isExpectedToBeAllowed: false,
 		},
 
 		{
 			name:                  "passive mode: image exists, image passes",
 			validationMode:        validation.BreakGlassMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, passingImageName),
+			admissionRequest:      podAdmissionRequest(t, passingImageName),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "passive mode: image doesn't exist",
 			validationMode:        validation.BreakGlassMode,
-			admissionRequest:      mockAdmissionRequestForPod(t, nonexistentImageName),
+			admissionRequest:      podAdmissionRequest(t, nonexistentImageName),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "policy mode: deployment with passing image",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, passingImageName)),
+			admissionRequest:      deploymentAdmissionRequest(t, newPod(t, passingImageName)),
 			isExpectedToBeAllowed: true,
 		},
 		{
 			name:                  "policy mode: deployment with failing image",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, failingImageName)),
+			admissionRequest:      deploymentAdmissionRequest(t, newPod(t, failingImageName)),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "policy mode: deployment with passing image and failing image",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, passingImageName, failingImageName)),
+			admissionRequest:      deploymentAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
 			isExpectedToBeAllowed: false,
 		},
 		{
 			name:                  "policy mode: deployment with failing image and passing image",
 			validationMode:        validation.PolicyGateMode,
-			admissionRequest:      mockAdmissionRequestForDeployment(t, newPod(t, failingImageName, passingImageName)),
+			admissionRequest:      deploymentAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
 	}
@@ -209,21 +209,21 @@ func mockAnchoreAuthConfig() anchore.AuthConfiguration {
 	}
 }
 
-func mockAdmissionRequestForPod(t *testing.T, images ...string) v1beta1.AdmissionRequest {
+func podAdmissionRequest(t *testing.T, images ...string) v1beta1.AdmissionRequest {
 	t.Helper()
 
 	pod := newPod(t, images...)
-	return mockAdmissionRequest(t, pod, podKind)
+	return newAdmissionRequest(t, pod, podKind)
 }
 
-func mockAdmissionRequestForDeployment(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func deploymentAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
 	t.Helper()
 
 	deployment := newDeployment(t, pod)
-	return mockAdmissionRequest(t, deployment, deploymentKind)
+	return newAdmissionRequest(t, deployment, deploymentKind)
 }
 
-func mockAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
+func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
 
 	marshalledObject, err := json.Marshal(requestedObject)
