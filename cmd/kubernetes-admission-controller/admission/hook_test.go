@@ -21,57 +21,83 @@ import (
 func TestHook_Validate(t *testing.T) {
 	testCases := []struct {
 		name                      string
+		validationMode            validation.Mode
 		requestedKubernetesObject interface{}
-		gateMode                  validation.Mode
-		expectedAllowedResponse   bool
+		isExpectedToBeAllowed     bool
 	}{
 		{
-			name:                      "policy gating, image exists, image passes",
-			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  validation.PolicyGateMode,
-			expectedAllowedResponse:   true,
+			name:                      "policy mode: image exists, image passes",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, passingImageName),
+			isExpectedToBeAllowed:     true,
 		},
 		{
-			name:                      "policy gating, image exists, image fails",
-			requestedKubernetesObject: mockPod(failingImageName),
-			gateMode:                  validation.PolicyGateMode,
-			expectedAllowedResponse:   false,
+			name:                      "policy mode: image exists, image fails",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, failingImageName),
+			isExpectedToBeAllowed:     false,
 		},
 		{
-			name:                      "policy gating, image doesn't exist",
-			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  validation.PolicyGateMode,
-			expectedAllowedResponse:   false,
+			name:                      "policy mode: multiple images that all pass",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, passingImageName, passingImageName, passingImageName),
+			isExpectedToBeAllowed:     true,
 		},
 		{
-			name:                      "analysis gating, image exists, image passes",
-			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  validation.AnalysisGateMode,
-			expectedAllowedResponse:   true,
+			name:                      "policy mode: first image passes, second image fails",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, passingImageName, failingImageName),
+			isExpectedToBeAllowed:     false,
 		},
 		{
-			name:                      "analysis gating, image doesn't exist",
-			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  validation.AnalysisGateMode,
-			expectedAllowedResponse:   false,
+			name:                      "policy mode: first image fails, second image passes",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, failingImageName, passingImageName),
+			isExpectedToBeAllowed:     false,
+		},
+
+		{
+			name:                      "policy mode: image doesn't exist",
+			validationMode:            validation.PolicyGateMode,
+			requestedKubernetesObject: mockPod(t, nonexistentImageName),
+			isExpectedToBeAllowed:     false,
 		},
 		{
-			name:                      "analysis gating, image doesn't exist",
-			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  validation.AnalysisGateMode,
-			expectedAllowedResponse:   false,
+			name:                      "analysis mode: image has been analyzed",
+			validationMode:            validation.AnalysisGateMode,
+			requestedKubernetesObject: mockPod(t, passingImageName),
+			isExpectedToBeAllowed:     true,
 		},
 		{
-			name:                      "passive gating, image exists, image passes",
-			requestedKubernetesObject: mockPod(passingImageName),
-			gateMode:                  validation.BreakGlassMode,
-			expectedAllowedResponse:   true,
+			name:                      "analysis mode: image doesn't exist",
+			validationMode:            validation.AnalysisGateMode,
+			requestedKubernetesObject: mockPod(t, nonexistentImageName),
+			isExpectedToBeAllowed:     false,
 		},
 		{
-			name:                      "passive gating, image doesn't exist",
-			requestedKubernetesObject: mockPod(nonexistentImageName),
-			gateMode:                  validation.BreakGlassMode,
-			expectedAllowedResponse:   true,
+			name:                      "analysis mode: first image doesn't exist, second image has been analyzed",
+			validationMode:            validation.AnalysisGateMode,
+			requestedKubernetesObject: mockPod(t, nonexistentImageName, passingImageName),
+			isExpectedToBeAllowed:     false,
+		},
+		{
+			name:                      "analysis mode: first image has been analyzed, second image doesn't exist",
+			validationMode:            validation.AnalysisGateMode,
+			requestedKubernetesObject: mockPod(t, passingImageName, nonexistentImageName),
+			isExpectedToBeAllowed:     false,
+		},
+
+		{
+			name:                      "passive mode: image exists, image passes",
+			validationMode:            validation.BreakGlassMode,
+			requestedKubernetesObject: mockPod(t, passingImageName),
+			isExpectedToBeAllowed:     true,
+		},
+		{
+			name:                      "passive mode: image doesn't exist",
+			validationMode:            validation.BreakGlassMode,
+			requestedKubernetesObject: mockPod(t, nonexistentImageName),
+			isExpectedToBeAllowed:     true,
 		},
 	}
 
@@ -82,7 +108,7 @@ func TestHook_Validate(t *testing.T) {
 			defer anchoreService.Close()
 
 			hook := Hook{
-				Config:      mockControllerConfiguration(testCase.gateMode, anchoreService),
+				Config:      mockControllerConfiguration(testCase.validationMode, anchoreService),
 				Clientset:   kubernetes.Clientset{},
 				AnchoreAuth: mockAnchoreAuthConfig(),
 			}
@@ -93,21 +119,31 @@ func TestHook_Validate(t *testing.T) {
 			t.Logf("admission response: %s\n", admissionResponse)
 
 			// assert
-			assert.Equal(t, testCase.expectedAllowedResponse, admissionResponse.Allowed)
+			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
 		})
 	}
 }
 
-func mockPod(image string) v1.Pod {
+func mockPod(t *testing.T, images ...string) v1.Pod {
+	t.Helper()
+
+	if len(images) == 0 {
+		t.Fatal("cannot mock pods with zero images")
+	}
+
+	var containers []v1.Container
+
+	for i, image := range images {
+		containers = append(containers, v1.Container{
+			Name:    fmt.Sprintf("Container-%d", i),
+			Image:   image,
+			Command: []string{"bin/bash", "bin"},
+		})
+	}
+
 	return v1.Pod{
 		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:    "Container1",
-					Image:   image,
-					Command: []string{"bin/bash", "bin"},
-				},
-			},
+			Containers: containers,
 		},
 	}
 }
