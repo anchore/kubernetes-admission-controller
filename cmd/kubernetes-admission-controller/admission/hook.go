@@ -59,7 +59,11 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 
 	extractFunc := extractor.ForAdmissionRequest(request)
 	if extractFunc == nil {
-		message := fmt.Sprintf("unsupported admission request kind %q", request.Kind.Kind)
+		message := fmt.Sprintf(
+			"unsupported admission request kind (request UID: %s): %q",
+			request.UID,
+			request.Kind,
+		)
 		klog.Info(message)
 		result := validation.Result{IsValid: true, Message: message}
 
@@ -92,7 +96,7 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 		}
 	}
 
-	const message = "no failures during admission gate checks for Kubernetes object"
+	message := fmt.Sprintf("no failures during admission gate checks for Kubernetes object %q", meta.String())
 	klog.Info(message)
 	result := validation.Result{IsValid: true, Message: message}
 
@@ -108,7 +112,7 @@ func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validatio
 	containers := podSpec.Containers
 
 	if len(containers) == 0 {
-		message := "no container specs to validate"
+		message := fmt.Sprintf("no container specs to validate for pod %q", meta.String())
 		klog.Info(message)
 		result := validation.Result{IsValid: true, Message: message}
 
@@ -124,7 +128,7 @@ func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validatio
 		}
 	}
 
-	const message = "no failures during admission gate checks for podSpec"
+	message := fmt.Sprintf("no failures during admission gate checks for pod %q", meta.String())
 	klog.Info(message)
 	result := validation.Result{IsValid: true, Message: message}
 
@@ -140,7 +144,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, h.Clientset)
 	if gateConfiguration == nil {
 		// No rule matched, so skip this image
-		message := "no selector match found"
+		message := fmt.Sprintf("no selector match found for image %q", imageReference)
 		klog.Info(message)
 		return validation.Result{IsValid: true, Message: message, ImageDigest: ""}, requestQueue
 	}
@@ -153,7 +157,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	mode := gateConfiguration.Mode
 	if !validation.IsValidMode(mode) {
-		message := fmt.Sprintf("Got unexpected mode value %q for matching selector. Failing on error.", mode)
+		message := fmt.Sprintf("got unexpected mode value %q for matching selector. Failing on error.", mode)
 		klog.Error(message)
 		return validation.Result{IsValid: false, Message: message, ImageDigest: ""}, requestQueue
 	}
