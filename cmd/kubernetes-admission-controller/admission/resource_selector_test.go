@@ -150,18 +150,14 @@ func assertShouldMatch(t *testing.T, doesMatch bool) {
 	t.Helper()
 
 	if !doesMatch {
-		t.Fatal("Failed to match")
+		t.Error("Failed to match")
 	}
-
-	t.Log("Matched all properly")
 }
 
 func assertShouldNotMatch(t *testing.T, doesMatch bool) {
 	t.Helper()
 
 	if doesMatch {
-		t.Fatal("Incorrectly matched")
+		t.Error("Incorrectly matched")
 	}
-
-	t.Log("Correctly did not match")
 }

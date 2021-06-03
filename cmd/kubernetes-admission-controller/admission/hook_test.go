@@ -116,7 +116,6 @@ func TestHook_Validate(t *testing.T) {
 
 			// act
 			admissionResponse := hook.Validate(&admissionRequest)
-			t.Logf("admission response: %s\n", admissionResponse)
 
 			// assert
 			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
