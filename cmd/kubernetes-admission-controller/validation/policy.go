@@ -15,7 +15,7 @@ func Policy(imageBackend anchore.ImageBackend, imageReference, policyBundleID st
 		return analysisValidationResult
 	}
 
-	klog.Info("Performing validation that the image passes policy evaluation in Anchore")
+	klog.Info("performing validation that the image passes policy evaluation in Anchore")
 
 	imageDigest := analysisValidationResult.ImageDigest
 	doesCheckPass, err := imageBackend.DoesPolicyCheckPass(imageDigest, imageReference, policyBundleID)
@@ -26,13 +26,14 @@ func Policy(imageBackend anchore.ImageBackend, imageReference, policyBundleID st
 	}
 
 	if doesCheckPass {
-		message := fmt.Sprintf("Image %q with digest %q passed policy checks for policy bundle %q", imageReference,
+		message := fmt.Sprintf("image %q with digest %q PASSED policy checks for policy bundle %q", imageReference,
 			imageDigest, policyBundleID)
 		klog.Info(message)
 		return Result{IsValid: true, Message: message, ImageDigest: imageDigest}
 	}
 
-	message := fmt.Sprintf("Image %q with digest %q failed policy checks for policy bundle %q", imageReference, imageDigest, policyBundleID)
+	message := fmt.Sprintf("image %q with digest %q FAILED policy checks for policy bundle %q", imageReference,
+		imageDigest, policyBundleID)
 	klog.Info(message)
 	return Result{IsValid: false, Message: message, ImageDigest: imageDigest}
 }

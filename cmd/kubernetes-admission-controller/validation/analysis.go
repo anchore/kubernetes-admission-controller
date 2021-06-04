@@ -12,7 +12,7 @@ import (
 // Analysis performs the "analysis mode" validation and returns a Result.
 func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
 	if imageBackend == nil {
-		message := "No valid policy reference with valid credentials found. Failing validation"
+		message := "failing analysis validation: missing Anchore image client (likely due to missing credentials)"
 		klog.Error(message)
 		return Result{IsValid: false, Message: message}
 	}
@@ -22,7 +22,7 @@ func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
 	image, err := imageBackend.Get(imageReference)
 	if err != nil {
 		if errors.Is(err, anchore.ErrImageDoesNotExist) {
-			message := fmt.Sprintf("Image %q is not analyzed", imageReference)
+			message := fmt.Sprintf("image %q is not analyzed", imageReference)
 			klog.Info(message)
 			return Result{IsValid: false, Message: message}
 		}

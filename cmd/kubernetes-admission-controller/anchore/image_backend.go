@@ -19,12 +19,16 @@ type ImageBackend interface {
 // GetImageBackend returns an abstract ImageBackend with an underlying implementation for fulfilling Anchore image
 // -related API requests.
 func GetImageBackend(authConfig AuthConfiguration, user, endpoint string) ImageBackend {
+	klog.Infof("looking for Anchore user %q among configured credentials", user)
+
 	for _, entry := range authConfig.Users {
 		if entry.Username == user {
-			klog.Info("Found selector match for user ", "Username=", entry.Username)
+			klog.Infof("found credentials for user %q! creating an Anchore image client", user)
 			return newAnchoreAPIImageBackend(entry.Username, entry.Password, endpoint)
 		}
 	}
+
+	klog.Infof("user %q not found among configured credentials", user)
 
 	return nil
 }

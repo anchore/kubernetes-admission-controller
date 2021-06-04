@@ -19,14 +19,20 @@ func determineGateConfiguration(
 	policySelectors []PolicySelector,
 	clientset kubernetes.Clientset,
 ) *GateConfiguration {
-	for _, policySelector := range policySelectors {
-		klog.Info("Checking selector ", "selector=", policySelector)
+	klog.Infof("determining gate configuration for image %q, found %d policy selectors", imageReference,
+		len(policySelectors))
+	klog.Infof("object metadata: %+v", meta)
+
+	for i, policySelector := range policySelectors {
+		klog.Infof("checking policy selector at index %d: %+v", i, policySelector)
 
 		selectedObjectMeta := selectObjectMetaForMatching(policySelector.ResourceSelector.Type, meta, clientset)
 
 		if selectedObjectMeta != nil {
+			klog.Infof("object meta selected (name: %q)", selectedObjectMeta.Name)
+
 			if match := doesObjectMatchResourceSelector(selectedObjectMeta, policySelector.ResourceSelector); match {
-				klog.Info("Matched selector rule=", policySelector)
+				klog.Infof("matched policy selector: %+v", policySelector)
 
 				return &GateConfiguration{
 					Mode:            policySelector.Mode,
@@ -34,8 +40,10 @@ func determineGateConfiguration(
 				}
 			}
 		} else {
+			klog.Info("no object meta selected")
+
 			if match := doesMatchImageResource(policySelector.ResourceSelector.SelectorValueRegex, imageReference); match {
-				klog.Info("Matched selector rule=", policySelector, " with mode=", policySelector.Mode)
+				klog.Infof("image reference %q matched policy selector", imageReference)
 
 				return &GateConfiguration{
 					Mode:            policySelector.Mode,
@@ -51,7 +59,8 @@ func determineGateConfiguration(
 // selectObjectMetaForMatching gets the correct set of ObjectMeta for comparison,
 // or nil if not a selector that uses ObjectMeta.
 func selectObjectMetaForMatching(resourceSelectorType ResourceSelectorType, objectMeta metav1.ObjectMeta, clientset kubernetes.Clientset) *metav1.ObjectMeta {
-	klog.Info("Resolving the resource to use for selection")
+	klog.Infof("resolving the resource to use for selection (type: %s)", resourceSelectorType)
+
 	switch resourceSelectorType {
 	case GeneralResourceSelectorType:
 		return &objectMeta

@@ -38,19 +38,20 @@ func newAnchoreAPIImageBackend(username, password, endpoint string) anchoreAPIIm
 func (p anchoreAPIImageBackend) Get(imageReference string) (Image, error) {
 	localOptions := anchore.ListImagesOpts{}
 	localOptions.Fulltag = optional.NewString(imageReference)
-	klog.Info("Getting image from anchore engine. Reference=", imageReference)
+	klog.Infof("getting image %q from Anchore", imageReference)
 
 	// Find the latest image with this tag
 	images, _, err := p.client.ListImages(p.auth, &localOptions)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			klog.Infof("image %q not found in Anchore", imageReference)
 			return Image{}, ErrImageDoesNotExist
 		}
 
+		klog.Errorf("error retrieving image %q from Anchore: %v", imageReference, err)
 		return Image{}, err
 	}
 
-	klog.Info("Getting image")
 	if len(images) == 0 {
 		return Image{}, fmt.Errorf("no images found with tag %q", imageReference)
 	}
@@ -60,6 +61,8 @@ func (p anchoreAPIImageBackend) Get(imageReference string) (Image, error) {
 	})
 
 	image := images[0]
+
+	klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, image.AnalysisStatus, image.ImageDigest)
 
 	return Image{
 		Digest:         image.ImageDigest,

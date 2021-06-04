@@ -51,6 +51,8 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 	}
 	request := *admissionRequest
 
+	klog.Infof("configured users: %+v", h.AnchoreAuth.Users)
+
 	result, analysisRequestQueue := h.evaluateKubernetesObject(request)
 	analysisRequestQueue.DispatchAll()
 
@@ -153,6 +155,8 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 		klog.Info(message)
 		return validation.Result{IsValid: true, Message: message, ImageDigest: ""}, requestQueue
 	}
+
+	klog.Infof("gate configuration determined: %+v", *gateConfiguration)
 
 	imageBackend := anchore.GetImageBackend(
 		h.AnchoreAuth,

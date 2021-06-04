@@ -138,6 +138,7 @@ func TestHook_Validate(t *testing.T) {
 				Clientset:   kubernetes.Clientset{},
 				AnchoreAuth: mockAnchoreAuthConfig(),
 			}
+
 			// act
 			admissionResponse := hook.Validate(&testCase.admissionRequest)
 
