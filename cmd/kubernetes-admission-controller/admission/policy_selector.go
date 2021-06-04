@@ -6,7 +6,7 @@ import (
 )
 
 type PolicySelector struct {
-	ResourceSelector ResourceSelector
+	ResourceSelector ResourceSelector `mapstructure:"Selector"`
 	Mode             validation.Mode
 	PolicyReference  anchore.ClientConfiguration
 }
