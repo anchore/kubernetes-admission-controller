@@ -7,7 +7,7 @@ import (
 func TestAnalysisRequest_Dispatch(t *testing.T) {
 	// arrange
 	const imageReference = "some-image:latest"
-	imageBackend := new(mockImageBackend)
+	imageBackend := new(MockImageBackend)
 	imageBackend.On("Analyze", imageReference).Return(nil)
 
 	request := analysisRequest{

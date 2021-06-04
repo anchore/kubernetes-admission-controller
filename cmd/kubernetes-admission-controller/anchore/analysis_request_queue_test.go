@@ -4,7 +4,7 @@ import "testing"
 
 func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 	const imageReference = "some-image:latest"
-	imageBackend := new(mockImageBackend)
+	imageBackend := new(MockImageBackend)
 	imageBackend.On("Analyze", imageReference).Return(nil)
 
 	queue := NewAnalysisRequestQueue()
