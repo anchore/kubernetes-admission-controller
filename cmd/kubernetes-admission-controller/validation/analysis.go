@@ -17,7 +17,7 @@ func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
 		return Result{IsValid: false, Message: message}
 	}
 
-	klog.Info("Performing validation that the image is analyzed by Anchore")
+	klog.Info("performing validation that the image is analyzed by Anchore")
 
 	image, err := imageBackend.Get(imageReference)
 	if err != nil {
@@ -33,12 +33,12 @@ func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
 	}
 
 	if image.AnalysisStatus == anchore.ImageStatusAnalyzed {
-		message := fmt.Sprintf("Image %q with digest %q is analyzed", imageReference, image.Digest)
+		message := fmt.Sprintf("image %q with digest %q is analyzed", imageReference, image.Digest)
 		klog.Info(message)
 		return Result{IsValid: true, Message: message, ImageDigest: image.Digest}
 	}
 
-	message := fmt.Sprintf("Image %q with digest %q is not analyzed", imageReference, image.Digest)
+	message := fmt.Sprintf("image %q with digest %q is not analyzed", imageReference, image.Digest)
 	klog.Info(message)
 	return Result{IsValid: false, Message: message, ImageDigest: image.Digest}
 }
