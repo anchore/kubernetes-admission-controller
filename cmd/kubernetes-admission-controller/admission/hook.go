@@ -51,7 +51,7 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 	}
 	request := *admissionRequest
 
-	klog.Infof("configured users: %+v", h.AnchoreAuth.Users)
+	klog.Infof("validating new admission request — name: %q, kind: %q", admissionRequest.Name, admissionRequest.Kind)
 
 	result, analysisRequestQueue := h.evaluateKubernetesObject(request)
 	analysisRequestQueue.DispatchAll()
