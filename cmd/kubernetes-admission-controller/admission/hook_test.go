@@ -135,7 +135,7 @@ func TestHook_Validate(t *testing.T) {
 
 			hook := Hook{
 				Config:      mockControllerConfiguration(testCase.validationMode, anchoreService),
-				Clientset:   kubernetes.Clientset{},
+				Clientset:   &kubernetes.Clientset{},
 				AnchoreAuth: mockAnchoreAuthConfig(),
 			}
 
@@ -188,8 +188,8 @@ func newDeployment(t *testing.T, pod v1.Pod) appsV1.Deployment {
 	}
 }
 
-func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) ControllerConfiguration {
-	return ControllerConfiguration{
+func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
+	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
 		AnchoreEndpoint: testServer.URL,
 		PolicySelectors: []PolicySelector{
@@ -202,8 +202,8 @@ func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Serv
 	}
 }
 
-func mockAnchoreAuthConfig() anchore.AuthConfiguration {
-	return anchore.AuthConfiguration{
+func mockAnchoreAuthConfig() *anchore.AuthConfiguration {
+	return &anchore.AuthConfiguration{
 		Users: []anchore.Credential{
 			{"admin", "password"},
 		},

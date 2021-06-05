@@ -135,8 +135,8 @@ func main() {
 
 	// Run the server
 	cmd.RunAdmissionServer(&admission.Hook{
-		Config:      controllerConfiguration,
-		Clientset:   *clientset,
-		AnchoreAuth: authConfiguration,
+		Config:      &controllerConfiguration,
+		Clientset:   clientset,
+		AnchoreAuth: &authConfiguration,
 	})
 }

@@ -27,9 +27,9 @@ import (
 var _ cmd.ValidatingAdmissionHook = (*Hook)(nil)
 
 type Hook struct {
-	Config      ControllerConfiguration
-	Clientset   k8s.Clientset
-	AnchoreAuth anchore.AuthConfiguration
+	Config      *ControllerConfiguration
+	Clientset   *k8s.Clientset
+	AnchoreAuth *anchore.AuthConfiguration
 }
 
 func (h *Hook) Initialize(*rest.Config, <-chan struct{}) error {
@@ -148,7 +148,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, h.Clientset)
+	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, *h.Clientset)
 	if gateConfiguration == nil {
 		// No rule matched, so skip this image
 		message := fmt.Sprintf("no selector match found for image %q", imageReference)
@@ -159,7 +159,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 	klog.Infof("gate configuration determined: %+v", *gateConfiguration)
 
 	imageBackend := anchore.GetImageBackend(
-		h.AnchoreAuth,
+		*h.AnchoreAuth,
 		gateConfiguration.PolicyReference.Username,
 		h.Config.AnchoreEndpoint,
 	)
@@ -184,7 +184,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 		result = validation.BreakGlass()
 	}
 
-	if shouldRequestAnalysis(result, h.Config) {
+	if shouldRequestAnalysis(result, *h.Config) {
 		requestQueue.Add(imageBackend, imageReference)
 	}
 
