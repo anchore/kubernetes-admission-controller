@@ -62,7 +62,7 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 // evaluateKubernetesObject looks for container image references in the requested object and performs validation
 // based on user-supplied configuration.
 func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (validation.Result, anchore.AnalysisRequestQueue) {
-	requestQueue := anchore.NewAnalysisRequestQueue()
+	queue := anchore.NewAnalysisRequestQueue()
 
 	extractFunc := extractor.ForAdmissionRequest(request)
 	if extractFunc == nil {
@@ -74,7 +74,7 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 		klog.Info(message)
 		result := validation.Result{IsValid: true, Message: message}
 
-		return result, requestQueue
+		return result, queue
 	}
 
 	meta, podSpecs, err := extractFunc(request)
@@ -83,7 +83,7 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 		klog.Error(message)
 		result := validation.Result{IsValid: false, Message: message}
 
-		return result, requestQueue
+		return result, queue
 	}
 
 	if len(podSpecs) == 0 {
@@ -91,30 +91,27 @@ func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (valida
 		klog.Info(message)
 		result := validation.Result{IsValid: true, Message: message}
 
-		return result, requestQueue
+		return result, queue
 	}
+
+	var podResults []validation.Result
 
 	for _, podSpec := range podSpecs {
-		result, queueFromPod := h.evaluatePod(meta, podSpec)
-		requestQueue.ImportRequestsFrom(queueFromPod)
-
-		if !result.IsValid {
-			return result, requestQueue
-		}
+		podResult, podQueue := h.evaluatePod(meta, podSpec)
+		podResults = append(podResults, podResult)
+		queue.ImportRequestsFrom(podQueue)
 	}
 
-	message := fmt.Sprintf("no failures during admission gate checks for Kubernetes object %q", meta.String())
-	klog.Info(message)
-	result := validation.Result{IsValid: true, Message: message}
+	objectResult := validation.Reduce(podResults, "results for pods:")
 
-	return result, requestQueue
+	return objectResult, queue
 }
 
 // evaluatePod looks for container image references in the pod and performs validation
 // based on user-supplied configuration.
 func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validation.Result,
 	anchore.AnalysisRequestQueue) {
-	requestQueue := anchore.NewAnalysisRequestQueue()
+	queue := anchore.NewAnalysisRequestQueue()
 
 	containers := podSpec.Containers
 
@@ -123,23 +120,20 @@ func (h Hook) evaluatePod(meta metav1.ObjectMeta, podSpec v1.PodSpec) (validatio
 		klog.Info(message)
 		result := validation.Result{IsValid: true, Message: message}
 
-		return result, requestQueue
+		return result, queue
 	}
+
+	var imageResults []validation.Result
 
 	for _, container := range containers {
-		result, queueFromImage := h.evaluateImage(meta, container.Image)
-		requestQueue.ImportRequestsFrom(queueFromImage)
-
-		if !result.IsValid {
-			return result, requestQueue
-		}
+		imageResult, queueFromImage := h.evaluateImage(meta, container.Image)
+		imageResults = append(imageResults, imageResult)
+		queue.ImportRequestsFrom(queueFromImage)
 	}
 
-	message := fmt.Sprintf("no failures during admission gate checks for pod %q", meta.String())
-	klog.Info(message)
-	result := validation.Result{IsValid: true, Message: message}
+	podResult := validation.Reduce(imageResults, "results for images:")
 
-	return result, requestQueue
+	return podResult, queue
 }
 
 // evaluateImage performs validation on the given container image based on user-supplied configuration.
@@ -187,6 +181,8 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 	if shouldRequestAnalysis(result, *h.Config) {
 		requestQueue.Add(imageBackend, imageReference)
 	}
+
+	klog.Infof("image evaluation result: %+v", result)
 
 	return result, requestQueue
 }
