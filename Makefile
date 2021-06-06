@@ -37,6 +37,10 @@ endif
 	@mkdir -p ${BUILD_DIR}
 	go build ${GOARGS} -tags "${GOTAGS}" -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/ ./cmd/...
 
+.PHONY: test
+test:
+	go test -v ./...
+
 .PHONY: build-release
 build-release: ## Build all binaries without debug information
 	@${MAKE} LDFLAGS="-w ${LDFLAGS}" GOARGS="${GOARGS} -trimpath" BUILD_DIR="${BUILD_DIR}/release" build
