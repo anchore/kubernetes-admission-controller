@@ -4,6 +4,7 @@ import (
 	"k8s.io/api/admission/v1beta1"
 	appsV1 "k8s.io/api/apps/v1"
 	batchV1 "k8s.io/api/batch/v1"
+	batchV1beta "k8s.io/api/batch/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -40,4 +41,9 @@ var extractors = map[metav1.GroupVersionKind]Extractor{
 		Version: batchV1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}: fromJob,
+	metav1.GroupVersionKind{
+		Group:   batchV1beta.SchemeGroupVersion.Group,
+		Version: batchV1beta.SchemeGroupVersion.Version,
+		Kind:    "CronJob",
+	}: fromCronJob,
 }

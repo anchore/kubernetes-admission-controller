@@ -153,6 +153,31 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      jobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
+		// CronJob resource tests
+		{
+			name:                  "policy mode: cronjob with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: cronjob with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: cronjob with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: cronjob with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -236,7 +261,7 @@ func newCronJob(t *testing.T, pod v1.Pod) batchV1beta.CronJob {
 
 	cronJobSpec := batchV1beta.CronJobSpec{
 		JobTemplate: batchV1beta.JobTemplateSpec{
-			ObjectMeta: testDeploymentObjectMeta,
+			ObjectMeta: testCronJobObjectMeta,
 			Spec: batchV1.JobSpec{
 				Template: v1.PodTemplateSpec{
 					Spec: pod.Spec,
@@ -246,7 +271,7 @@ func newCronJob(t *testing.T, pod v1.Pod) batchV1beta.CronJob {
 	}
 
 	return batchV1beta.CronJob{
-		ObjectMeta: testDeploymentObjectMeta,
+		ObjectMeta: testCronJobObjectMeta,
 		Spec:       cronJobSpec,
 	}
 }
@@ -297,8 +322,8 @@ func jobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
 func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
 	t.Helper()
 
-	job := newCronJob(t, pod)
-	return newAdmissionRequest(t, job, jobKind)
+	cronJob := newCronJob(t, pod)
+	return newAdmissionRequest(t, cronJob, cronJobKind)
 }
 
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
@@ -439,6 +464,11 @@ var (
 		Version: batchV1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}
+	cronJobKind = metav1.GroupVersionKind{
+		Group:   batchV1beta.SchemeGroupVersion.Group,
+		Version: batchV1beta.SchemeGroupVersion.Version,
+		Kind:    "CronJob",
+	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{
 			"key": "value",
@@ -467,6 +497,16 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_job",
+		Namespace: "namespace1",
+	}
+	testCronJobObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_cronjob",
 		Namespace: "namespace1",
 	}
 )
