@@ -3,6 +3,7 @@ package admission
 import (
 	"encoding/json"
 	"fmt"
+	batchV1 "k8s.io/api/batch/v1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -101,6 +102,7 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      podAdmissionRequest(t, nonexistentImageName),
 			isExpectedToBeAllowed: true,
 		},
+		// Deployment resource tests
 		{
 			name:                  "policy mode: deployment with passing image",
 			validationMode:        validation.PolicyGateMode,
@@ -123,6 +125,31 @@ func TestHook_Validate(t *testing.T) {
 			name:                  "policy mode: deployment with failing image and passing image",
 			validationMode:        validation.PolicyGateMode,
 			admissionRequest:      deploymentAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		// Job resource tests
+		{
+			name:                  "policy mode: job with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      jobAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: job with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      jobAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: job with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      jobAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: job with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      jobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
 	}
@@ -188,6 +215,21 @@ func newDeployment(t *testing.T, pod v1.Pod) appsV1.Deployment {
 	}
 }
 
+func newJob(t *testing.T, pod v1.Pod) batchV1.Job {
+	t.Helper()
+
+	jobSpec := batchV1.JobSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return batchV1.Job{
+		ObjectMeta: testDeploymentObjectMeta,
+		Spec:       jobSpec,
+	}
+}
+
 func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
 	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
@@ -222,6 +264,13 @@ func deploymentAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionReque
 
 	deployment := newDeployment(t, pod)
 	return newAdmissionRequest(t, deployment, deploymentKind)
+}
+
+func jobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	job := newJob(t, pod)
+	return newAdmissionRequest(t, job, jobKind)
 }
 
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
@@ -356,6 +405,11 @@ var (
 		Group:   appsV1.SchemeGroupVersion.Group,
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "Deployment",
+	}
+	jobKind = metav1.GroupVersionKind{
+		Group:   batchV1.SchemeGroupVersion.Group,
+		Version: batchV1.SchemeGroupVersion.Version,
+		Kind:    "Job",
 	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{

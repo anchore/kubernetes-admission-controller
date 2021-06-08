@@ -3,6 +3,7 @@ package extractor
 import (
 	"k8s.io/api/admission/v1beta1"
 	appsV1 "k8s.io/api/apps/v1"
+	batchV1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,4 +35,9 @@ var extractors = map[metav1.GroupVersionKind]Extractor{
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "Deployment",
 	}: fromDeployment,
+	metav1.GroupVersionKind{
+		Group:   batchV1.SchemeGroupVersion.Group,
+		Version: batchV1.SchemeGroupVersion.Version,
+		Kind:    "Job",
+	}: fromJob,
 }
