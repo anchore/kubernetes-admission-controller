@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	batchV1 "k8s.io/api/batch/v1"
+	batchV1beta "k8s.io/api/batch/v1beta1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -225,8 +226,28 @@ func newJob(t *testing.T, pod v1.Pod) batchV1.Job {
 	}
 
 	return batchV1.Job{
-		ObjectMeta: testDeploymentObjectMeta,
+		ObjectMeta: testJobObjectMeta,
 		Spec:       jobSpec,
+	}
+}
+
+func newCronJob(t *testing.T, pod v1.Pod) batchV1beta.CronJob {
+	t.Helper()
+
+	cronJobSpec := batchV1beta.CronJobSpec{
+		JobTemplate: batchV1beta.JobTemplateSpec{
+			ObjectMeta: testDeploymentObjectMeta,
+			Spec: batchV1.JobSpec{
+				Template: v1.PodTemplateSpec{
+					Spec: pod.Spec,
+				},
+			},
+		},
+	}
+
+	return batchV1beta.CronJob{
+		ObjectMeta: testDeploymentObjectMeta,
+		Spec:       cronJobSpec,
 	}
 }
 
@@ -270,6 +291,13 @@ func jobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
 	t.Helper()
 
 	job := newJob(t, pod)
+	return newAdmissionRequest(t, job, jobKind)
+}
+
+func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	job := newCronJob(t, pod)
 	return newAdmissionRequest(t, job, jobKind)
 }
 
@@ -429,6 +457,16 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_deployment",
+		Namespace: "namespace1",
+	}
+	testJobObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_job",
 		Namespace: "namespace1",
 	}
 )
