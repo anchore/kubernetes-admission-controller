@@ -12,7 +12,7 @@ import (
 // Enforcing compliance with the Extractor type
 var _ Extractor = fromJob
 
-// fromDeployment returns the extracted object metadata and included v1.PodSpecs from the Deployment admission request.
+// fromJob returns the extracted object metadata and included v1.PodSpecs from the Job admission request.
 func fromJob(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var job batchV1.Job
 	err := json.Unmarshal(admissionRequest.Object.Raw, &job)

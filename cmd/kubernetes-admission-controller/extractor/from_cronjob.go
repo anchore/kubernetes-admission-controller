@@ -11,7 +11,7 @@ import (
 // Enforcing compliance with the Extractor type
 var _ Extractor = fromCronJob
 
-// fromDeployment returns the extracted object metadata and included v1.PodSpecs from the Deployment admission request.
+// fromCronJob returns the extracted object metadata and included v1.PodSpecs from the CronJob admission request.
 func fromCronJob(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var cronJob batchV1beta.CronJob
 	err := json.Unmarshal(admissionRequest.Object.Raw, &cronJob)

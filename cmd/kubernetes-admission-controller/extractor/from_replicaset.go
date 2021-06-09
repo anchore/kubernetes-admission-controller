@@ -12,7 +12,7 @@ import (
 // Enforcing compliance with the Extractor type
 var _ Extractor = fromReplicaSet
 
-// fromDeployment returns the extracted object metadata and included v1.PodSpecs from the Deployment admission request.
+// fromReplicaSet returns the extracted object metadata and included v1.PodSpecs from the ReplicaSet admission request.
 func fromReplicaSet(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var replicaSet appsV1.ReplicaSet
 	err := json.Unmarshal(admissionRequest.Object.Raw, &replicaSet)

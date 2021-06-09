@@ -12,7 +12,7 @@ import (
 // Enforcing compliance with the Extractor type
 var _ Extractor = fromStatefulSet
 
-// fromDeployment returns the extracted object metadata and included v1.PodSpecs from the Deployment admission request.
+// fromStatefulSet returns the extracted object metadata and included v1.PodSpecs from the StatefulSet admission request.
 func fromStatefulSet(admissionRequest v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error) {
 	var statefulSet appsV1.StatefulSet
 	err := json.Unmarshal(admissionRequest.Object.Raw, &statefulSet)
