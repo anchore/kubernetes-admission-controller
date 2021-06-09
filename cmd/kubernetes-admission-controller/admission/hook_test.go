@@ -178,6 +178,31 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
+		// DaemonSet resource tests
+		{
+			name:                  "policy mode: daemonset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: daemonset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: daemonset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: daemonset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -276,6 +301,21 @@ func newCronJob(t *testing.T, pod v1.Pod) batchV1beta.CronJob {
 	}
 }
 
+func newDaemonSet(t *testing.T, pod v1.Pod) appsV1.DaemonSet {
+	t.Helper()
+
+	daemonSetSpec := appsV1.DaemonSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.DaemonSet{
+		ObjectMeta: testDaemonSetObjectMeta,
+		Spec:       daemonSetSpec,
+	}
+}
+
 func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
 	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
@@ -326,6 +366,12 @@ func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest 
 	return newAdmissionRequest(t, cronJob, cronJobKind)
 }
 
+func daemonSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	daemonSet := newDaemonSet(t, pod)
+	return newAdmissionRequest(t, daemonSet, daemonSetKind)
+}
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
 
@@ -469,6 +515,11 @@ var (
 		Version: batchV1beta.SchemeGroupVersion.Version,
 		Kind:    "CronJob",
 	}
+	daemonSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "DaemonSet",
+	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{
 			"key": "value",
@@ -507,6 +558,16 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_cronjob",
+		Namespace: "namespace1",
+	}
+	testDaemonSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_deamonset",
 		Namespace: "namespace1",
 	}
 )

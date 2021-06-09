@@ -46,4 +46,9 @@ var extractors = map[metav1.GroupVersionKind]Extractor{
 		Version: batchV1beta.SchemeGroupVersion.Version,
 		Kind:    "CronJob",
 	}: fromCronJob,
+	metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "DaemonSet",
+	}: fromDaemonSet,
 }
