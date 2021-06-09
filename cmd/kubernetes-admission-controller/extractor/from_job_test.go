@@ -14,7 +14,7 @@ import (
 func TestFromJob(t *testing.T) {
 	// arrange
 	job := batchV1.Job{
-		ObjectMeta: testDeploymentObjectMeta,
+		ObjectMeta: testJobObjectMeta,
 		Spec:       testJobSpec,
 	}
 	request := mockAdmissionRequestFromJob(t, job)
@@ -24,14 +24,14 @@ func TestFromJob(t *testing.T) {
 
 	// assert
 	assert.NoError(t, err)
-	assert.EqualValues(t, testDeploymentObjectMeta, actualMeta)
+	assert.EqualValues(t, testJobObjectMeta, actualMeta)
 	assert.Contains(t, actualPodSpecs, testPodSpec)
 }
 
 func mockAdmissionRequestFromJob(t *testing.T, job batchV1.Job) v1beta1.AdmissionRequest {
 	t.Helper()
 
-	return mockAdmissionRequestFromObject(t, "Deployment", "deployments", job)
+	return mockAdmissionRequestFromObject(t, "Job", "jobs", job)
 }
 
 var (

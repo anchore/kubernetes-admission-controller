@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	batchV1 "k8s.io/api/batch/v1"
+	batchV1beta "k8s.io/api/batch/v1beta1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -152,6 +153,106 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      jobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
+		// CronJob resource tests
+		{
+			name:                  "policy mode: cronjob with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: cronjob with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: cronjob with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: cronjob with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      cronJobAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		// DaemonSet resource tests
+		{
+			name:                  "policy mode: daemonset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: daemonset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: daemonset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: daemonset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		// StatefulSet resource tests
+		{
+			name:                  "policy mode: statefulset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: statefulset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: statefulset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: statefulset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		// ReplicaSet resource tests
+		{
+			name:                  "policy mode: replicaset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: replicaset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: replicaset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: replicaset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -225,8 +326,73 @@ func newJob(t *testing.T, pod v1.Pod) batchV1.Job {
 	}
 
 	return batchV1.Job{
-		ObjectMeta: testDeploymentObjectMeta,
+		ObjectMeta: testJobObjectMeta,
 		Spec:       jobSpec,
+	}
+}
+
+func newCronJob(t *testing.T, pod v1.Pod) batchV1beta.CronJob {
+	t.Helper()
+
+	cronJobSpec := batchV1beta.CronJobSpec{
+		JobTemplate: batchV1beta.JobTemplateSpec{
+			ObjectMeta: testCronJobObjectMeta,
+			Spec: batchV1.JobSpec{
+				Template: v1.PodTemplateSpec{
+					Spec: pod.Spec,
+				},
+			},
+		},
+	}
+
+	return batchV1beta.CronJob{
+		ObjectMeta: testCronJobObjectMeta,
+		Spec:       cronJobSpec,
+	}
+}
+
+func newDaemonSet(t *testing.T, pod v1.Pod) appsV1.DaemonSet {
+	t.Helper()
+
+	daemonSetSpec := appsV1.DaemonSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.DaemonSet{
+		ObjectMeta: testDaemonSetObjectMeta,
+		Spec:       daemonSetSpec,
+	}
+}
+
+func newStatefulSet(t *testing.T, pod v1.Pod) appsV1.StatefulSet {
+	t.Helper()
+
+	statefulSetSpec := appsV1.StatefulSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.StatefulSet{
+		ObjectMeta: testStatefulSetObjectMeta,
+		Spec:       statefulSetSpec,
+	}
+}
+
+func newReplicaSet(t *testing.T, pod v1.Pod) appsV1.ReplicaSet {
+	t.Helper()
+
+	replicaSetSpec := appsV1.ReplicaSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.ReplicaSet{
+		ObjectMeta: testReplicaSetObjectMeta,
+		Spec:       replicaSetSpec,
 	}
 }
 
@@ -273,6 +439,33 @@ func jobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
 	return newAdmissionRequest(t, job, jobKind)
 }
 
+func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	cronJob := newCronJob(t, pod)
+	return newAdmissionRequest(t, cronJob, cronJobKind)
+}
+
+func daemonSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	daemonSet := newDaemonSet(t, pod)
+	return newAdmissionRequest(t, daemonSet, daemonSetKind)
+}
+
+func statefulSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	statefulSet := newStatefulSet(t, pod)
+	return newAdmissionRequest(t, statefulSet, statefulSetKind)
+}
+
+func replicaSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	replicaSet := newReplicaSet(t, pod)
+	return newAdmissionRequest(t, replicaSet, replicaSetKind)
+}
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
 
@@ -411,6 +604,26 @@ var (
 		Version: batchV1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}
+	cronJobKind = metav1.GroupVersionKind{
+		Group:   batchV1beta.SchemeGroupVersion.Group,
+		Version: batchV1beta.SchemeGroupVersion.Version,
+		Kind:    "CronJob",
+	}
+	daemonSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "DaemonSet",
+	}
+	statefulSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "StatefulSet",
+	}
+	replicaSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "ReplicaSet",
+	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{
 			"key": "value",
@@ -429,6 +642,56 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_deployment",
+		Namespace: "namespace1",
+	}
+	testJobObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_job",
+		Namespace: "namespace1",
+	}
+	testCronJobObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_cronjob",
+		Namespace: "namespace1",
+	}
+	testDaemonSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_deamonset",
+		Namespace: "namespace1",
+	}
+	testStatefulSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_statefulset",
+		Namespace: "namespace1",
+	}
+	testReplicaSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_replicaset",
 		Namespace: "namespace1",
 	}
 )
