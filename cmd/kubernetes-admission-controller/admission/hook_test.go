@@ -203,6 +203,31 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      daemonSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
+		// StatefulSet resource tests
+		{
+			name:                  "policy mode: statefulset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: statefulset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: statefulset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: statefulset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -316,6 +341,21 @@ func newDaemonSet(t *testing.T, pod v1.Pod) appsV1.DaemonSet {
 	}
 }
 
+func newStatefulSet(t *testing.T, pod v1.Pod) appsV1.StatefulSet {
+	t.Helper()
+
+	statefulSetSpec := appsV1.StatefulSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.StatefulSet{
+		ObjectMeta: testStatefulSetObjectMeta,
+		Spec:       statefulSetSpec,
+	}
+}
+
 func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
 	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
@@ -371,6 +411,13 @@ func daemonSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionReques
 
 	daemonSet := newDaemonSet(t, pod)
 	return newAdmissionRequest(t, daemonSet, daemonSetKind)
+}
+
+func statefulSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	statefulSet := newStatefulSet(t, pod)
+	return newAdmissionRequest(t, statefulSet, statefulSetKind)
 }
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
@@ -520,6 +567,11 @@ var (
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "DaemonSet",
 	}
+	statefulSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "StatefulSet",
+	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{
 			"key": "value",
@@ -568,6 +620,16 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_deamonset",
+		Namespace: "namespace1",
+	}
+	testStatefulSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_statefulset",
 		Namespace: "namespace1",
 	}
 )

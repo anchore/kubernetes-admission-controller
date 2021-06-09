@@ -51,4 +51,9 @@ var extractors = map[metav1.GroupVersionKind]Extractor{
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "DaemonSet",
 	}: fromDaemonSet,
+	metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "StatefulSet",
+	}: fromStatefulSet,
 }
