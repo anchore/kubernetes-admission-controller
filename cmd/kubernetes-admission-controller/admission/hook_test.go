@@ -228,6 +228,31 @@ func TestHook_Validate(t *testing.T) {
 			admissionRequest:      statefulSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
 			isExpectedToBeAllowed: false,
 		},
+		// ReplicaSet resource tests
+		{
+			name:                  "policy mode: replicaset with passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, passingImageName)),
+			isExpectedToBeAllowed: true,
+		},
+		{
+			name:                  "policy mode: replicaset with failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: replicaset with passing image and failing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, passingImageName, failingImageName)),
+			isExpectedToBeAllowed: false,
+		},
+		{
+			name:                  "policy mode: replicaset with failing image and passing image",
+			validationMode:        validation.PolicyGateMode,
+			admissionRequest:      replicaSetAdmissionRequest(t, newPod(t, failingImageName, passingImageName)),
+			isExpectedToBeAllowed: false,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -356,6 +381,21 @@ func newStatefulSet(t *testing.T, pod v1.Pod) appsV1.StatefulSet {
 	}
 }
 
+func newReplicaSet(t *testing.T, pod v1.Pod) appsV1.ReplicaSet {
+	t.Helper()
+
+	replicaSetSpec := appsV1.ReplicaSetSpec{
+		Template: v1.PodTemplateSpec{
+			Spec: pod.Spec,
+		},
+	}
+
+	return appsV1.ReplicaSet{
+		ObjectMeta: testReplicaSetObjectMeta,
+		Spec:       replicaSetSpec,
+	}
+}
+
 func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
 	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
@@ -418,6 +458,13 @@ func statefulSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequ
 
 	statefulSet := newStatefulSet(t, pod)
 	return newAdmissionRequest(t, statefulSet, statefulSetKind)
+}
+
+func replicaSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+	t.Helper()
+
+	replicaSet := newReplicaSet(t, pod)
+	return newAdmissionRequest(t, replicaSet, replicaSetKind)
 }
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
 	t.Helper()
@@ -572,6 +619,11 @@ var (
 		Version: appsV1.SchemeGroupVersion.Version,
 		Kind:    "StatefulSet",
 	}
+	replicaSetKind = metav1.GroupVersionKind{
+		Group:   appsV1.SchemeGroupVersion.Group,
+		Version: appsV1.SchemeGroupVersion.Version,
+		Kind:    "ReplicaSet",
+	}
 	testPodObjectMeta = metav1.ObjectMeta{
 		Labels: map[string]string{
 			"key": "value",
@@ -630,6 +682,16 @@ var (
 			"annotation1": "value1",
 		},
 		Name:      "a_statefulset",
+		Namespace: "namespace1",
+	}
+	testReplicaSetObjectMeta = metav1.ObjectMeta{
+		Labels: map[string]string{
+			"key": "value",
+		},
+		Annotations: map[string]string{
+			"annotation1": "value1",
+		},
+		Name:      "a_replicaset",
 		Namespace: "namespace1",
 	}
 )
