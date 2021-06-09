@@ -38,7 +38,7 @@ on its own configuration including tls/cert setup that is necessary to have the 
 
 ## Build
 
-`docker build -t tag .` Should be all that is necessary to build.
+`make docker` Should be all that is necessary to build.
  
 ## Environment Variables
 
@@ -94,7 +94,7 @@ Example:
   "selectors": [
     {
       "selector": {
-        "resourcetype": "pod",
+        "resourcetype": "resource",
         "selectorkeyregex": "^breakglass$",
         "selectorvalueregex": "^true"
       },
@@ -106,7 +106,7 @@ Example:
       },
     {
     "selector": {
-      "resourcetype": "pod",
+      "resourcetype": "resource",
       "selectorkeyregex": "^app$",
       "selectorvalueregex": "^demoapp.*"
     },
@@ -179,5 +179,3 @@ To select on the name of a namespace to which a pod belongs:
 
 The controller monitors the config and credential files for updates and will automatically reload them dynamically so no restart is
 required to update rules or credentials.
-
-
