@@ -1,11 +1,14 @@
 package anchore
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 	const imageReference = "some-image:latest"
 	imageBackend := new(MockImageBackend)
-	imageBackend.On("Analyze", imageReference).Return(nil)
+	mockUser := Credential{}
+	imageBackend.On("Analyze", mockUser, imageReference).Return(nil)
 
 	queue := NewAnalysisRequestQueue()
 
@@ -16,8 +19,8 @@ func TestAnalysisRequestQueue_DispatchAll(t *testing.T) {
 	imageBackend.AssertNumberOfCalls(t, "Analyze", expectedAnalyzeCalls)
 
 	// Adding requests to queue via `Add`
-	queue.Add(imageBackend, imageReference)
-	queue.Add(imageBackend, imageReference)
+	queue.Add(imageBackend, mockUser, imageReference)
+	queue.Add(imageBackend, mockUser, imageReference)
 	expectedAnalyzeCalls += 2
 
 	// Two requests queued

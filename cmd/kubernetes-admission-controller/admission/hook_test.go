@@ -401,9 +401,9 @@ func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Serv
 	return &ControllerConfiguration{
 		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
 		AnchoreEndpoint: testServer.URL,
-		PolicySelectors: []PolicySelector{
+		PolicySelectors: []validation.PolicySelector{
 			{
-				ResourceSelector: ResourceSelector{Type: ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
+				ResourceSelector: validation.ResourceSelector{Type: validation.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
 				Mode:             mode,
 				PolicyReference:  anchore.PolicyReference{Username: "admin"},
 			},

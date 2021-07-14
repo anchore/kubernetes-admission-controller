@@ -1,24 +1,23 @@
-package admission
+package validation
 
 import (
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
-	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 )
 
-type gateConfiguration struct {
-	mode            validation.Mode
-	policyReference anchore.PolicyReference
+type Configuration struct {
+	Mode            Mode
+	PolicyReference anchore.PolicyReference
 }
 
-func determineGateConfiguration(
+func NewConfiguration(
 	meta metav1.ObjectMeta,
 	imageReference string,
 	policySelectors []PolicySelector,
 	clientset kubernetes.Clientset,
-) *gateConfiguration {
+) *Configuration {
 	klog.Infof("determining gate configuration for image %q, found %d policy selectors", imageReference,
 		len(policySelectors))
 	klog.Infof("object metadata: %+v", meta)
@@ -34,9 +33,9 @@ func determineGateConfiguration(
 			if match := doesObjectMatchResourceSelector(selectedObjectMeta, policySelector.ResourceSelector); match {
 				klog.Infof("matched policy selector: %+v", policySelector)
 
-				return &gateConfiguration{
-					mode:            policySelector.Mode,
-					policyReference: policySelector.PolicyReference,
+				return &Configuration{
+					Mode:            policySelector.Mode,
+					PolicyReference: policySelector.PolicyReference,
 				}
 			}
 		} else {
@@ -45,9 +44,9 @@ func determineGateConfiguration(
 			if match := doesMatchImageResource(policySelector.ResourceSelector.SelectorValueRegex, imageReference); match {
 				klog.Infof("image reference %q matched policy selector", imageReference)
 
-				return &gateConfiguration{
-					mode:            policySelector.Mode,
-					policyReference: policySelector.PolicyReference,
+				return &Configuration{
+					Mode:            policySelector.Mode,
+					PolicyReference: policySelector.PolicyReference,
 				}
 			}
 		}

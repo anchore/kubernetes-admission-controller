@@ -142,44 +142,42 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, *h.Clientset)
-	if gateConfiguration == nil {
+	c := validation.NewConfiguration(meta, imageReference, h.Config.PolicySelectors, *h.Clientset)
+	if c == nil {
 		// No rule matched, so skip this image
 		message := fmt.Sprintf("no selector match found for image %q", imageReference)
 		klog.Info(message)
 		return validation.Result{IsValid: true, Message: message, ImageDigest: ""}, requestQueue
 	}
+	configuration := *c
 
-	klog.Infof("gate configuration determined: %+v", *gateConfiguration)
+	klog.Infof("validation configuration determined: %+v", configuration)
 
-	imageBackend := anchore.GetImageBackend(
-		*h.AnchoreAuth,
-		gateConfiguration.policyReference.Username,
-		h.Config.AnchoreEndpoint,
-	)
+	// TODO: We should be able to inject the ImageBackend into Hook instances
+	imageBackend := anchore.NewAPIImageBackend(h.Config.AnchoreEndpoint)
 
-	mode := gateConfiguration.mode
-	if !validation.IsValidMode(mode) {
-		message := fmt.Sprintf("got unexpected mode value %q for matching selector. Failing on error.", mode)
+	user, err := anchore.SelectUserCredential(h.AnchoreAuth.Users, configuration.PolicyReference.Username)
+	if err != nil {
+		message := fmt.Sprintf("validation not possible: %v", err)
 		klog.Error(message)
-		return validation.Result{IsValid: false, Message: message, ImageDigest: ""}, requestQueue
+		return validation.Result{
+			IsValid: false,
+			Message: message,
+		}, requestQueue
 	}
 
-	var result validation.Result
-
-	switch gateConfiguration.mode {
-	case validation.PolicyGateMode:
-		result = validation.Policy(imageBackend, imageReference, gateConfiguration.policyReference.PolicyBundleId)
-
-	case validation.AnalysisGateMode:
-		result = validation.Analysis(imageBackend, imageReference)
-
-	case validation.BreakGlassMode:
-		result = validation.BreakGlass()
+	validator, err := validation.New(configuration, imageBackend, user, imageReference)
+	if err != nil {
+		return validation.Result{
+			IsValid: false,
+			Message: err.Error(),
+		}, requestQueue
 	}
+
+	result := validator()
 
 	if shouldRequestAnalysis(result, *h.Config) {
-		requestQueue.Add(imageBackend, imageReference)
+		requestQueue.Add(imageBackend, user, imageReference)
 	}
 
 	klog.Infof("image evaluation result: %+v", result)

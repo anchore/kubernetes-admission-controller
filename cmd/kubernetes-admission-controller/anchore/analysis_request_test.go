@@ -8,10 +8,12 @@ func TestAnalysisRequest_Dispatch(t *testing.T) {
 	// arrange
 	const imageReference = "some-image:latest"
 	imageBackend := new(MockImageBackend)
-	imageBackend.On("Analyze", imageReference).Return(nil)
+	mockUser := Credential{}
+	imageBackend.On("Analyze", mockUser, imageReference).Return(nil)
 
 	request := analysisRequest{
 		imageBackend:   imageBackend,
+		user:           mockUser,
 		imageReference: imageReference,
 	}
 
@@ -19,5 +21,5 @@ func TestAnalysisRequest_Dispatch(t *testing.T) {
 	request.dispatch()
 
 	// assert
-	imageBackend.AssertCalled(t, "Analyze", imageReference)
+	imageBackend.AssertCalled(t, "Analyze", mockUser, imageReference)
 }

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
@@ -26,7 +28,8 @@ func TestAnalysis(t *testing.T) {
 			name: "image does not exist",
 			imageBackend: (func() anchore.ImageBackend {
 				backend := new(anchore.MockImageBackend)
-				backend.On("Get", testImageReference).Return(anchore.Image{}, anchore.ErrImageDoesNotExist)
+				backend.On("Get", mock.Anything, testImageReference).Return(anchore.Image{},
+					anchore.ErrImageDoesNotExist)
 				return backend
 			})(),
 			isExpectedToBeValid: false,
@@ -35,7 +38,8 @@ func TestAnalysis(t *testing.T) {
 			name: "error on image lookup",
 			imageBackend: (func() anchore.ImageBackend {
 				backend := new(anchore.MockImageBackend)
-				backend.On("Get", testImageReference).Return(anchore.Image{}, errors.New("some other error"))
+				backend.On("Get", mock.Anything, testImageReference).Return(anchore.Image{},
+					errors.New("some other error"))
 
 				return backend
 			})(),
@@ -48,7 +52,7 @@ func TestAnalysis(t *testing.T) {
 				image := anchore.Image{
 					AnalysisStatus: anchore.ImageStatusAnalyzed,
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
 
 				return backend
 			})(),
@@ -61,7 +65,7 @@ func TestAnalysis(t *testing.T) {
 				image := anchore.Image{
 					AnalysisStatus: "not-analyzed",
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
 
 				return backend
 			})(),
@@ -71,7 +75,9 @@ func TestAnalysis(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := Analysis(testCase.imageBackend, testImageReference)
+			mockUser := anchore.Credential{}
+
+			actual := analysis(testCase.imageBackend, mockUser, testImageReference)
 
 			assert.Equal(t, testCase.isExpectedToBeValid, actual.IsValid)
 		})
