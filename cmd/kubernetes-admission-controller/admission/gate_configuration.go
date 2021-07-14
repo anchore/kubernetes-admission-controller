@@ -8,9 +8,9 @@ import (
 	"k8s.io/klog"
 )
 
-type GateConfiguration struct {
-	Mode            validation.Mode
-	PolicyReference anchore.ClientConfiguration
+type gateConfiguration struct {
+	mode            validation.Mode
+	policyReference anchore.PolicyReference
 }
 
 func determineGateConfiguration(
@@ -18,7 +18,7 @@ func determineGateConfiguration(
 	imageReference string,
 	policySelectors []PolicySelector,
 	clientset kubernetes.Clientset,
-) *GateConfiguration {
+) *gateConfiguration {
 	klog.Infof("determining gate configuration for image %q, found %d policy selectors", imageReference,
 		len(policySelectors))
 	klog.Infof("object metadata: %+v", meta)
@@ -34,9 +34,9 @@ func determineGateConfiguration(
 			if match := doesObjectMatchResourceSelector(selectedObjectMeta, policySelector.ResourceSelector); match {
 				klog.Infof("matched policy selector: %+v", policySelector)
 
-				return &GateConfiguration{
-					Mode:            policySelector.Mode,
-					PolicyReference: policySelector.PolicyReference,
+				return &gateConfiguration{
+					mode:            policySelector.Mode,
+					policyReference: policySelector.PolicyReference,
 				}
 			}
 		} else {
@@ -45,9 +45,9 @@ func determineGateConfiguration(
 			if match := doesMatchImageResource(policySelector.ResourceSelector.SelectorValueRegex, imageReference); match {
 				klog.Infof("image reference %q matched policy selector", imageReference)
 
-				return &GateConfiguration{
-					Mode:            policySelector.Mode,
-					PolicyReference: policySelector.PolicyReference,
+				return &gateConfiguration{
+					mode:            policySelector.Mode,
+					policyReference: policySelector.PolicyReference,
 				}
 			}
 		}

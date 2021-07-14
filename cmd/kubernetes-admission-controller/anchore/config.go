@@ -9,7 +9,10 @@ type Credential struct {
 	Password string
 }
 
-type ClientConfiguration struct {
-	Username       string
+type PolicyReference struct {
+	Username string // TODO: These two values shouldn't be tied together.
+	// We have use for Username in many more contexts than we do for PolicyBundleId.
+	// Note that this change would impact user configurations.
+
 	PolicyBundleId string
 }

@@ -3,11 +3,12 @@ package admission
 import (
 	"encoding/json"
 	"fmt"
-	batchV1 "k8s.io/api/batch/v1"
-	batchV1beta "k8s.io/api/batch/v1beta1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	batchV1 "k8s.io/api/batch/v1"
+	batchV1beta "k8s.io/api/batch/v1beta1"
 
 	appsV1 "k8s.io/api/apps/v1"
 
@@ -404,7 +405,7 @@ func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Serv
 			{
 				ResourceSelector: ResourceSelector{Type: ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
 				Mode:             mode,
-				PolicyReference:  anchore.ClientConfiguration{Username: "admin"},
+				PolicyReference:  anchore.PolicyReference{Username: "admin"},
 			},
 		},
 	}

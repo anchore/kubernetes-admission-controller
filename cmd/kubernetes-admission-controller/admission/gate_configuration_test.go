@@ -19,7 +19,7 @@ var (
 		Labels:      map[string]string{"some-label-key": "some-label-value"},
 		Annotations: map[string]string{"some-annotation-key": "some-annotation-value"},
 	}
-	testAnchoreClientConfig = anchore.ClientConfiguration{
+	testAnchorePolicyReference = anchore.PolicyReference{
 		Username:       "test-user",
 		PolicyBundleId: "test-policy-bundle-id",
 	}
@@ -33,7 +33,7 @@ func TestDetermineGateConfiguration(t *testing.T) {
 		imageReference  string
 		policySelectors []PolicySelector
 		clientset       kubernetes.Clientset
-		expected        *GateConfiguration
+		expected        *gateConfiguration
 	}{
 		{
 			name:            "no policy selectors",
@@ -51,12 +51,12 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: ".*",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
-			expected: &GateConfiguration{
-				Mode:            testValidationMode,
-				PolicyReference: testAnchoreClientConfig,
+			expected: &gateConfiguration{
+				mode:            testValidationMode,
+				policyReference: testAnchorePolicyReference,
 			},
 		},
 		{
@@ -70,12 +70,12 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: ".*",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
-			expected: &GateConfiguration{
-				Mode:            testValidationMode,
-				PolicyReference: testAnchoreClientConfig,
+			expected: &gateConfiguration{
+				mode:            testValidationMode,
+				policyReference: testAnchorePolicyReference,
 			},
 		},
 		{
@@ -89,7 +89,7 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: "this-will-not-match",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
 			expected: nil,

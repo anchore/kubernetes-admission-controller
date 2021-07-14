@@ -154,11 +154,11 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	imageBackend := anchore.GetImageBackend(
 		*h.AnchoreAuth,
-		gateConfiguration.PolicyReference.Username,
+		gateConfiguration.policyReference.Username,
 		h.Config.AnchoreEndpoint,
 	)
 
-	mode := gateConfiguration.Mode
+	mode := gateConfiguration.mode
 	if !validation.IsValidMode(mode) {
 		message := fmt.Sprintf("got unexpected mode value %q for matching selector. Failing on error.", mode)
 		klog.Error(message)
@@ -167,9 +167,9 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	var result validation.Result
 
-	switch gateConfiguration.Mode {
+	switch gateConfiguration.mode {
 	case validation.PolicyGateMode:
-		result = validation.Policy(imageBackend, imageReference, gateConfiguration.PolicyReference.PolicyBundleId)
+		result = validation.Policy(imageBackend, imageReference, gateConfiguration.policyReference.PolicyBundleId)
 
 	case validation.AnalysisGateMode:
 		result = validation.Analysis(imageBackend, imageReference)

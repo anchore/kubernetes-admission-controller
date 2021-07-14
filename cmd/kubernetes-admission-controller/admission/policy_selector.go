@@ -8,5 +8,5 @@ import (
 type PolicySelector struct {
 	ResourceSelector ResourceSelector `mapstructure:"Selector"`
 	Mode             validation.Mode
-	PolicyReference  anchore.ClientConfiguration
+	PolicyReference  anchore.PolicyReference
 }
