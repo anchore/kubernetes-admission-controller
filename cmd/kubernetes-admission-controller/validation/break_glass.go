@@ -9,6 +9,7 @@ func breakGlass() Result {
 	klog.Info(message)
 
 	return Result{
+		Mode:    BreakGlassMode,
 		IsValid: true,
 		Message: message,
 	}
