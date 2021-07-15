@@ -262,11 +262,13 @@ func TestHook_Validate(t *testing.T) {
 			anchoreService := mockAnchoreService()
 			defer anchoreService.Close()
 
-			hook := Hook{
-				Config:      mockControllerConfiguration(testCase.validationMode, anchoreService),
-				Clientset:   &kubernetes.Clientset{},
-				AnchoreAuth: mockAnchoreAuthConfig(),
-			}
+			imageBackend := anchore.NewAPIImageBackend(anchoreService.URL)
+			hook := NewHook(
+				mockControllerConfiguration(testCase.validationMode),
+				&kubernetes.Clientset{},
+				mockAnchoreAuthConfig(),
+				imageBackend,
+			)
 
 			// act
 			admissionResponse := hook.Validate(&testCase.admissionRequest)
@@ -397,10 +399,9 @@ func newReplicaSet(t *testing.T, pod v1.Pod) appsV1.ReplicaSet {
 	}
 }
 
-func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
+func mockControllerConfiguration(mode validation.Mode) *ControllerConfiguration {
 	return &ControllerConfiguration{
-		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
-		AnchoreEndpoint: testServer.URL,
+		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
 		PolicySelectors: []validation.PolicySelector{
 			{
 				ResourceSelector: validation.ResourceSelector{Type: validation.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},

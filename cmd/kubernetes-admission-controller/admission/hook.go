@@ -26,10 +26,22 @@ import (
 // Enforcing compliance with the cmd.ValidatingAdmissionHook interface
 var _ cmd.ValidatingAdmissionHook = (*Hook)(nil)
 
+// Hook is the Anchore-specific implementation of a Kubernetes validating admission hook.
 type Hook struct {
-	Config      *ControllerConfiguration
-	Clientset   *k8s.Clientset
-	AnchoreAuth *anchore.AuthConfiguration
+	config       *ControllerConfiguration
+	clientset    *k8s.Clientset
+	anchoreAuth  *anchore.AuthConfiguration
+	imageBackend anchore.ImageBackend
+}
+
+// NewHook creates and returns a new Hook.
+func NewHook(
+	config *ControllerConfiguration,
+	clientset *k8s.Clientset,
+	anchoreAuth *anchore.AuthConfiguration,
+	imageBackend anchore.ImageBackend,
+) *Hook {
+	return &Hook{config: config, clientset: clientset, anchoreAuth: anchoreAuth, imageBackend: imageBackend}
 }
 
 func (h *Hook) Initialize(*rest.Config, <-chan struct{}) error {
@@ -142,7 +154,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	c := validation.NewConfiguration(meta, imageReference, h.Config.PolicySelectors, *h.Clientset)
+	c := validation.NewConfiguration(meta, imageReference, h.config.PolicySelectors, *h.clientset)
 	if c == nil {
 		// No rule matched, so skip this image
 		message := fmt.Sprintf("no selector match found for image %q", imageReference)
@@ -153,10 +165,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	klog.Infof("validation configuration determined: %+v", configuration)
 
-	// TODO: We should be able to inject the ImageBackend into Hook instances
-	imageBackend := anchore.NewAPIImageBackend(h.Config.AnchoreEndpoint)
-
-	user, err := anchore.SelectUserCredential(h.AnchoreAuth.Users, configuration.PolicyReference.Username)
+	user, err := anchore.SelectUserCredential(h.anchoreAuth.Users, configuration.PolicyReference.Username)
 	if err != nil {
 		message := fmt.Sprintf("validation not possible: %v", err)
 		klog.Error(message)
@@ -166,7 +175,7 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 		}, requestQueue
 	}
 
-	validator, err := validation.New(configuration, imageBackend, user, imageReference)
+	validator, err := validation.New(configuration, h.imageBackend, user, imageReference)
 	if err != nil {
 		return validation.Result{
 			IsValid: false,
@@ -176,8 +185,8 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	result := validator()
 
-	if shouldRequestAnalysis(result, *h.Config) {
-		requestQueue.Add(imageBackend, user, imageReference)
+	if shouldRequestAnalysis(result, *h.config) {
+		requestQueue.Add(h.imageBackend, user, imageReference)
 	}
 
 	klog.Infof("image evaluation result: %+v", result)
