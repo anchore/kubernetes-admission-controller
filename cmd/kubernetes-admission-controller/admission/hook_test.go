@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	batchV1 "k8s.io/api/batch/v1"
 	batchV1beta "k8s.io/api/batch/v1beta1"
 
@@ -264,7 +266,7 @@ func TestHook_Validate(t *testing.T) {
 
 			imageBackend := anchore.NewAPIImageBackend(anchoreService.URL)
 			hook := NewHook(
-				mockControllerConfiguration(testCase.validationMode),
+				mockControllerConfiguration(testCase.validationMode, true),
 				&kubernetes.Clientset{},
 				mockAnchoreAuthConfig(),
 				imageBackend,
@@ -280,34 +282,144 @@ func TestHook_Validate(t *testing.T) {
 }
 
 func TestHook_Validate_AnalysisRequestDispatching(t *testing.T) {
-	// arrange
-	mockUser := anchore.Credential{
-		Username: "admin",
-		Password: "some-password",
-	}
-	mockImageReference := "some-image:latest"
-
-	imageBackend := &anchore.MockImageBackend{}
-	imageBackend.On("Analyze", mockUser, mockImageReference).Return(nil)
-
-	hook := NewHook(
-		mockControllerConfiguration(validation.BreakGlassMode),
-		&kubernetes.Clientset{},
-		&anchore.AuthConfiguration{
-			Users: []anchore.Credential{
-				mockUser,
-			},
+	testCases := []struct {
+		mode                   validation.Mode
+		isImageAnalyzedAlready bool
+		requestAnalysis        bool
+		expectAnalysisRequest  bool
+	}{
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
 		},
-		imageBackend,
-	)
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+	}
 
-	request := podAdmissionRequest(t, mockImageReference)
+	for _, testCase := range testCases {
+		testCaseName := fmt.Sprintf(
+			"%s mode, image analysis already exists %t, analysis requested %t",
+			testCase.mode,
+			testCase.isImageAnalyzedAlready,
+			testCase.requestAnalysis,
+		)
 
-	// act
-	_ = hook.Validate(&request)
+		t.Run(testCaseName,
+			func(t *testing.T) {
+				// arrange
+				user := anchore.Credential{
+					Username: "admin",
+					Password: "some-password",
+				}
+				imageReference := "some-image:latest"
 
-	// assert
-	imageBackend.AssertCalled(t, "Analyze", mockUser, mockImageReference)
+				imageBackend := &anchore.MockImageBackend{}
+				imageBackend.On("Analyze", user, imageReference).Return(nil)
+				imageBackend.On("DoesPolicyCheckPass", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(true, nil)
+
+				if testCase.isImageAnalyzedAlready {
+					image := anchore.Image{
+						Digest:         "abcdef123456",
+						AnalysisStatus: anchore.ImageStatusAnalyzed,
+					}
+					imageBackend.On("Get", mock.AnythingOfType("anchore.Credential"), imageReference).Return(image, nil)
+				} else {
+					imageBackend.On("Get", mock.AnythingOfType("anchore.Credential"),
+						imageReference).Return(anchore.Image{}, anchore.ErrImageDoesNotExist)
+				}
+
+				hook := NewHook(
+					mockControllerConfiguration(testCase.mode, testCase.requestAnalysis),
+					&kubernetes.Clientset{},
+					&anchore.AuthConfiguration{
+						Users: []anchore.Credential{
+							user,
+						},
+					},
+					imageBackend,
+				)
+
+				request := podAdmissionRequest(t, imageReference)
+
+				// act
+				_ = hook.Validate(&request)
+
+				// assert
+				if testCase.expectAnalysisRequest {
+					imageBackend.AssertCalled(t, "Analyze", user, imageReference)
+				} else {
+					imageBackend.AssertNotCalled(t, "Analyze", mock.Anything, mock.Anything)
+				}
+			},
+		)
+	}
 }
 
 func newPod(t *testing.T, images ...string) v1.Pod {
@@ -430,9 +542,9 @@ func newReplicaSet(t *testing.T, pod v1.Pod) appsV1.ReplicaSet {
 	}
 }
 
-func mockControllerConfiguration(mode validation.Mode) *ControllerConfiguration {
+func mockControllerConfiguration(mode validation.Mode, shouldRequestAnalysis bool) *ControllerConfiguration {
 	return &ControllerConfiguration{
-		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
+		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: shouldRequestAnalysis},
 		PolicySelectors: []validation.PolicySelector{
 			{
 				ResourceSelector: validation.ResourceSelector{Type: validation.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
