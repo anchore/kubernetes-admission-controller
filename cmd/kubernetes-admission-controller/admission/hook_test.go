@@ -279,6 +279,37 @@ func TestHook_Validate(t *testing.T) {
 	}
 }
 
+func TestHook_Validate_AnalysisRequestDispatching(t *testing.T) {
+	// arrange
+	mockUser := anchore.Credential{
+		Username: "admin",
+		Password: "some-password",
+	}
+	mockImageReference := "some-image:latest"
+
+	imageBackend := &anchore.MockImageBackend{}
+	imageBackend.On("Analyze", mockUser, mockImageReference).Return(nil)
+
+	hook := NewHook(
+		mockControllerConfiguration(validation.BreakGlassMode),
+		&kubernetes.Clientset{},
+		&anchore.AuthConfiguration{
+			Users: []anchore.Credential{
+				mockUser,
+			},
+		},
+		imageBackend,
+	)
+
+	request := podAdmissionRequest(t, mockImageReference)
+
+	// act
+	_ = hook.Validate(&request)
+
+	// assert
+	imageBackend.AssertCalled(t, "Analyze", mockUser, mockImageReference)
+}
+
 func newPod(t *testing.T, images ...string) v1.Pod {
 	t.Helper()
 
