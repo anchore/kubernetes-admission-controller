@@ -8,6 +8,7 @@ import (
 // for analysis. This request is not actually sent until dispatch is called.
 type analysisRequest struct {
 	imageBackend   ImageBackend
+	user           Credential
 	imageReference string
 }
 
@@ -20,7 +21,7 @@ func (r analysisRequest) dispatch() {
 
 	klog.Infof("dispatching analysis request to Anchore for image %q", r.imageReference)
 
-	err := r.imageBackend.Analyze(r.imageReference)
+	err := r.imageBackend.Analyze(r.user, r.imageReference)
 	if err != nil {
 		klog.Infof("analysis request encountered an error (this doesn't impact the validation result): %v", err)
 	}

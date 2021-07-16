@@ -1,9 +1,7 @@
-package admission
+package validation
 
 import (
 	"testing"
-
-	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
 
@@ -19,21 +17,21 @@ var (
 		Labels:      map[string]string{"some-label-key": "some-label-value"},
 		Annotations: map[string]string{"some-annotation-key": "some-annotation-value"},
 	}
-	testAnchoreClientConfig = anchore.ClientConfiguration{
+	testAnchorePolicyReference = anchore.PolicyReference{
 		Username:       "test-user",
 		PolicyBundleId: "test-policy-bundle-id",
 	}
-	testValidationMode = validation.PolicyGateMode
+	testValidationMode = PolicyGateMode
 )
 
-func TestDetermineGateConfiguration(t *testing.T) {
+func TestNewConfiguration(t *testing.T) {
 	testCases := []struct {
 		name            string
 		meta            metav1.ObjectMeta
 		imageReference  string
 		policySelectors []PolicySelector
 		clientset       kubernetes.Clientset
-		expected        *GateConfiguration
+		expected        *Configuration
 	}{
 		{
 			name:            "no policy selectors",
@@ -51,12 +49,12 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: ".*",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
-			expected: &GateConfiguration{
+			expected: &Configuration{
 				Mode:            testValidationMode,
-				PolicyReference: testAnchoreClientConfig,
+				PolicyReference: testAnchorePolicyReference,
 			},
 		},
 		{
@@ -70,12 +68,12 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: ".*",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
-			expected: &GateConfiguration{
+			expected: &Configuration{
 				Mode:            testValidationMode,
-				PolicyReference: testAnchoreClientConfig,
+				PolicyReference: testAnchorePolicyReference,
 			},
 		},
 		{
@@ -89,7 +87,7 @@ func TestDetermineGateConfiguration(t *testing.T) {
 						SelectorValueRegex: "this-will-not-match",
 					},
 					Mode:            testValidationMode,
-					PolicyReference: testAnchoreClientConfig,
+					PolicyReference: testAnchorePolicyReference,
 				},
 			},
 			expected: nil,
@@ -98,7 +96,7 @@ func TestDetermineGateConfiguration(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := determineGateConfiguration(
+			actual := NewConfiguration(
 				testCase.meta,
 				testCase.imageReference,
 				testCase.policySelectors,

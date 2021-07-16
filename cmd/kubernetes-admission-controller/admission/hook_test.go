@@ -3,11 +3,14 @@ package admission
 import (
 	"encoding/json"
 	"fmt"
-	batchV1 "k8s.io/api/batch/v1"
-	batchV1beta "k8s.io/api/batch/v1beta1"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
+
+	batchV1 "k8s.io/api/batch/v1"
+	batchV1beta "k8s.io/api/batch/v1beta1"
 
 	appsV1 "k8s.io/api/apps/v1"
 
@@ -261,11 +264,13 @@ func TestHook_Validate(t *testing.T) {
 			anchoreService := mockAnchoreService()
 			defer anchoreService.Close()
 
-			hook := Hook{
-				Config:      mockControllerConfiguration(testCase.validationMode, anchoreService),
-				Clientset:   &kubernetes.Clientset{},
-				AnchoreAuth: mockAnchoreAuthConfig(),
-			}
+			imageBackend := anchore.NewAPIImageBackend(anchoreService.URL)
+			hook := NewHook(
+				mockControllerConfiguration(testCase.validationMode, true),
+				&kubernetes.Clientset{},
+				mockAnchoreAuthConfig(),
+				imageBackend,
+			)
 
 			// act
 			admissionResponse := hook.Validate(&testCase.admissionRequest)
@@ -273,6 +278,147 @@ func TestHook_Validate(t *testing.T) {
 			// assert
 			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
 		})
+	}
+}
+
+func TestHook_Validate_AnalysisRequestDispatching(t *testing.T) {
+	testCases := []struct {
+		mode                   validation.Mode
+		isImageAnalyzedAlready bool
+		requestAnalysis        bool
+		expectAnalysisRequest  bool
+	}{
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.BreakGlassMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.AnalysisGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: true,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        true,
+			expectAnalysisRequest:  true,
+		},
+		{
+			mode:                   validation.PolicyGateMode,
+			isImageAnalyzedAlready: false,
+			requestAnalysis:        false,
+			expectAnalysisRequest:  false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCaseName := fmt.Sprintf(
+			"%s mode, image analysis already exists %t, analysis requested %t",
+			testCase.mode,
+			testCase.isImageAnalyzedAlready,
+			testCase.requestAnalysis,
+		)
+
+		t.Run(testCaseName,
+			func(t *testing.T) {
+				// arrange
+				user := anchore.Credential{
+					Username: "admin",
+					Password: "some-password",
+				}
+				imageReference := "some-image:latest"
+
+				imageBackend := &anchore.MockImageBackend{}
+				imageBackend.On("Analyze", user, imageReference).Return(nil)
+				imageBackend.On("DoesPolicyCheckPass", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(true, nil)
+
+				if testCase.isImageAnalyzedAlready {
+					image := anchore.Image{
+						Digest:         "abcdef123456",
+						AnalysisStatus: anchore.ImageStatusAnalyzed,
+					}
+					imageBackend.On("Get", mock.AnythingOfType("anchore.Credential"), imageReference).Return(image, nil)
+				} else {
+					imageBackend.On("Get", mock.AnythingOfType("anchore.Credential"),
+						imageReference).Return(anchore.Image{}, anchore.ErrImageDoesNotExist)
+				}
+
+				hook := NewHook(
+					mockControllerConfiguration(testCase.mode, testCase.requestAnalysis),
+					&kubernetes.Clientset{},
+					&anchore.AuthConfiguration{
+						Users: []anchore.Credential{
+							user,
+						},
+					},
+					imageBackend,
+				)
+
+				request := podAdmissionRequest(t, imageReference)
+
+				// act
+				_ = hook.Validate(&request)
+
+				// assert
+				if testCase.expectAnalysisRequest {
+					imageBackend.AssertCalled(t, "Analyze", user, imageReference)
+				} else {
+					imageBackend.AssertNotCalled(t, "Analyze", mock.Anything, mock.Anything)
+				}
+			},
+		)
 	}
 }
 
@@ -396,15 +542,14 @@ func newReplicaSet(t *testing.T, pod v1.Pod) appsV1.ReplicaSet {
 	}
 }
 
-func mockControllerConfiguration(mode validation.Mode, testServer *httptest.Server) *ControllerConfiguration {
+func mockControllerConfiguration(mode validation.Mode, shouldRequestAnalysis bool) *ControllerConfiguration {
 	return &ControllerConfiguration{
-		Validator:       ValidatorConfiguration{Enabled: true, RequestAnalysis: true},
-		AnchoreEndpoint: testServer.URL,
-		PolicySelectors: []PolicySelector{
+		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: shouldRequestAnalysis},
+		PolicySelectors: []validation.PolicySelector{
 			{
-				ResourceSelector: ResourceSelector{Type: ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
+				ResourceSelector: validation.ResourceSelector{Type: validation.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
 				Mode:             mode,
-				PolicyReference:  anchore.ClientConfiguration{Username: "admin"},
+				PolicyReference:  anchore.PolicyReference{Username: "admin"},
 			},
 		},
 	}

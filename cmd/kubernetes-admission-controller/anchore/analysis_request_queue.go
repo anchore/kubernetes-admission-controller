@@ -11,8 +11,8 @@ func NewAnalysisRequestQueue() AnalysisRequestQueue {
 	return AnalysisRequestQueue{}
 }
 
-func (q *AnalysisRequestQueue) Add(imageBackend ImageBackend, imageReference string) {
-	q.requests = append(q.requests, analysisRequest{imageBackend, imageReference})
+func (q *AnalysisRequestQueue) Add(imageBackend ImageBackend, user Credential, imageReference string) {
+	q.requests = append(q.requests, analysisRequest{imageBackend, user, imageReference})
 }
 
 func (q *AnalysisRequestQueue) ImportRequestsFrom(other AnalysisRequestQueue) {

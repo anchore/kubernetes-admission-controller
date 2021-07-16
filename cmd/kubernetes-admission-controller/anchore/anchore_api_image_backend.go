@@ -13,12 +13,11 @@ import (
 	"k8s.io/klog"
 )
 
-type anchoreAPIImageBackend struct {
+type APIImageBackend struct {
 	client imagesClient
-	auth   context.Context
 }
 
-func newAnchoreAPIImageBackend(username, password, endpoint string) anchoreAPIImageBackend {
+func NewAPIImageBackend(endpoint string) APIImageBackend {
 	cfg := anchore.NewConfiguration()
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
 	cfg.BasePath = endpoint
@@ -26,22 +25,19 @@ func newAnchoreAPIImageBackend(username, password, endpoint string) anchoreAPIIm
 	// TODO: cert verification options?
 	client := anchore.NewAPIClient(cfg)
 
-	// TODO: context timeouts
-	auth := context.WithValue(context.Background(), anchore.ContextBasicAuth, anchore.BasicAuth{UserName: username, Password: password})
-
-	return anchoreAPIImageBackend{
+	return APIImageBackend{
 		client: client.ImagesApi,
-		auth:   auth,
 	}
 }
 
-func (p anchoreAPIImageBackend) Get(imageReference string) (Image, error) {
+func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, error) {
 	localOptions := anchore.ListImagesOpts{}
 	localOptions.Fulltag = optional.NewString(imageReference)
 	klog.Infof("getting image %q from Anchore", imageReference)
 
 	// Find the latest image with this tag
-	images, _, err := p.client.ListImages(p.auth, &localOptions)
+	ctx := authContextFromCredential(asUser)
+	images, _, err := p.client.ListImages(ctx, &localOptions)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
 			klog.Infof("image %q not found in Anchore", imageReference)
@@ -70,7 +66,7 @@ func (p anchoreAPIImageBackend) Get(imageReference string) (Image, error) {
 	}, nil
 }
 
-func (p anchoreAPIImageBackend) Analyze(imageReference string) error {
+func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
@@ -83,7 +79,8 @@ func (p anchoreAPIImageBackend) Analyze(imageReference string) error {
 		CreatedAt:   time.Now().UTC().Round(time.Second),
 	}
 
-	images, _, err := p.client.AddImage(p.auth, req, &opts)
+	ctx := authContextFromCredential(asUser)
+	images, _, err := p.client.AddImage(ctx, req, &opts)
 
 	if err != nil {
 		return err
@@ -103,14 +100,15 @@ func (p anchoreAPIImageBackend) Analyze(imageReference string) error {
 	return nil
 }
 
-func (p anchoreAPIImageBackend) DoesPolicyCheckPass(imageDigest, imageTag, policyBundleID string) (bool, error) {
+func (p APIImageBackend) DoesPolicyCheckPass(asUser Credential, imageDigest, imageTag, policyBundleID string) (bool, error) {
 	localOptions := anchore.GetImagePolicyCheckOpts{}
 	localOptions.Interactive = optional.NewBool(true)
 	if policyBundleID != "" {
 		localOptions.PolicyId = optional.NewString(policyBundleID)
 	}
 
-	evaluations, _, err := p.client.GetImagePolicyCheck(p.auth, imageDigest, imageTag, &localOptions)
+	ctx := authContextFromCredential(asUser)
+	evaluations, _, err := p.client.GetImagePolicyCheck(ctx, imageDigest, imageTag, &localOptions)
 	if err != nil {
 		return false, err
 	}
@@ -138,4 +136,13 @@ func getPolicyEvaluationStatus(policyEvaluation map[string]interface{}) string {
 	}
 
 	return ""
+}
+
+func authContextFromCredential(credential Credential) context.Context {
+	basicAuthValues := anchore.BasicAuth{
+		UserName: credential.Username,
+		Password: credential.Password,
+	}
+
+	return context.WithValue(context.Background(), anchore.ContextBasicAuth, basicAuthValues)
 }

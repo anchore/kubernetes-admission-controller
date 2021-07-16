@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +33,7 @@ func TestPolicy(t *testing.T) {
 				image := anchore.Image{
 					AnalysisStatus: "not-analyzed",
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
 
 				return backend
 			})(),
@@ -45,8 +47,8 @@ func TestPolicy(t *testing.T) {
 					Digest:         testImageDigest,
 					AnalysisStatus: anchore.ImageStatusAnalyzed,
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
-				backend.On("DoesPolicyCheckPass", testImageDigest, testImageReference, testPolicyBundleID).Return(false,
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
+				backend.On("DoesPolicyCheckPass", mock.Anything, testImageDigest, testImageReference, testPolicyBundleID).Return(false,
 					errors.New("some error"))
 
 				return backend
@@ -61,9 +63,8 @@ func TestPolicy(t *testing.T) {
 					Digest:         testImageDigest,
 					AnalysisStatus: anchore.ImageStatusAnalyzed,
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
-				backend.On("DoesPolicyCheckPass", testImageDigest, testImageReference, testPolicyBundleID).Return(true,
-					nil)
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
+				backend.On("DoesPolicyCheckPass", mock.Anything, testImageDigest, testImageReference, testPolicyBundleID).Return(true, nil)
 
 				return backend
 			})(),
@@ -77,9 +78,9 @@ func TestPolicy(t *testing.T) {
 					Digest:         testImageDigest,
 					AnalysisStatus: anchore.ImageStatusAnalyzed,
 				}
-				backend.On("Get", testImageReference).Return(image, nil)
-				backend.On("DoesPolicyCheckPass", testImageDigest, testImageReference, testPolicyBundleID).Return(false,
-					nil)
+				backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
+				backend.On("DoesPolicyCheckPass", mock.Anything, testImageDigest, testImageReference,
+					testPolicyBundleID).Return(false, nil)
 
 				return backend
 			})(),
@@ -89,7 +90,9 @@ func TestPolicy(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := Policy(testCase.imageBackend, testImageReference, testPolicyBundleID)
+			mockUser := anchore.Credential{}
+
+			actual := policy(testCase.imageBackend, mockUser, testImageReference, testPolicyBundleID)
 
 			assert.Equal(t, testCase.isExpectedToBeValid, actual.IsValid)
 		})

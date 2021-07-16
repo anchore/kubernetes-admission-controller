@@ -7,6 +7,6 @@ import (
 )
 
 func TestBreakGlass(t *testing.T) {
-	result := BreakGlass()
+	result := breakGlass()
 	assert.True(t, result.IsValid)
 }
