@@ -177,9 +177,11 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	validator, err := validation.New(configuration, h.imageBackend, user, imageReference)
 	if err != nil {
+		message := fmt.Sprintf("unable to validate: %v", err)
+		klog.Error(message)
 		return validation.Result{
 			IsValid: false,
-			Message: err.Error(),
+			Message: message,
 		}, requestQueue
 	}
 

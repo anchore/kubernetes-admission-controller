@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
-
-	"k8s.io/klog"
 )
 
 // Validator is a function that can be executed to produce a validation Result.
@@ -31,8 +29,7 @@ func New(configuration Configuration, imageBackend anchore.ImageBackend, user an
 		return breakGlass, nil
 
 	default:
-		message := fmt.Sprintf("got unexpected mode value %q for matching selector. failing on error.", mode)
-		klog.Error(message)
+		message := fmt.Sprintf("got unexpected value %q for validation mode from matching selector", mode)
 		return nil, errors.New(message)
 	}
 }
