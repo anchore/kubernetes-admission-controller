@@ -9,8 +9,8 @@ import (
 	"k8s.io/klog"
 )
 
-// Analysis performs the "analysis mode" validation and returns a Result.
-func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
+// analysis performs the "analysis mode" validation and returns a Result.
+func analysis(imageBackend anchore.ImageBackend, asUser anchore.Credential, imageReference string) Result {
 	if imageBackend == nil {
 		message := "failing analysis validation: missing Anchore image client (likely due to missing credentials)"
 		klog.Error(message)
@@ -19,7 +19,7 @@ func Analysis(imageBackend anchore.ImageBackend, imageReference string) Result {
 
 	klog.Info("performing validation that the image is analyzed by Anchore")
 
-	image, err := imageBackend.Get(imageReference)
+	image, err := imageBackend.Get(asUser, imageReference)
 	if err != nil {
 		if errors.Is(err, anchore.ErrImageDoesNotExist) {
 			message := fmt.Sprintf("image %q is not analyzed", imageReference)

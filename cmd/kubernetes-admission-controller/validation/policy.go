@@ -8,9 +8,10 @@ import (
 	"k8s.io/klog"
 )
 
-// Policy performs the "policy mode" validation and returns a Result.
-func Policy(imageBackend anchore.ImageBackend, imageReference, policyBundleID string) Result {
-	analysisValidationResult := Analysis(imageBackend, imageReference)
+// policy performs the "policy mode" validation and returns a Result.
+func policy(imageBackend anchore.ImageBackend, asUser anchore.Credential, imageReference,
+	policyBundleID string) Result {
+	analysisValidationResult := analysis(imageBackend, asUser, imageReference)
 	if analysisValidationResult.IsValid == false {
 		return analysisValidationResult
 	}
@@ -18,7 +19,7 @@ func Policy(imageBackend anchore.ImageBackend, imageReference, policyBundleID st
 	klog.Info("performing validation that the image passes policy evaluation in Anchore")
 
 	imageDigest := analysisValidationResult.ImageDigest
-	doesCheckPass, err := imageBackend.DoesPolicyCheckPass(imageDigest, imageReference, policyBundleID)
+	doesCheckPass, err := imageBackend.DoesPolicyCheckPass(asUser, imageDigest, imageReference, policyBundleID)
 	if err != nil {
 		message := fmt.Sprintf("error checking if policy check passes for image %q: %s", imageDigest, err)
 		klog.Error(message)

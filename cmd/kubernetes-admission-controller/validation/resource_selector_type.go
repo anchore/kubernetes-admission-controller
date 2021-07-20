@@ -1,4 +1,4 @@
-package admission
+package validation
 
 type ResourceSelectorType string
 

@@ -131,12 +131,11 @@ func main() {
 		panic(err.Error())
 	}
 
+	imageBackend := anchore.NewAPIImageBackend(controllerConfiguration.AnchoreEndpoint)
+	hook := admission.NewHook(&controllerConfiguration, clientset, &authConfiguration, imageBackend)
+
 	klog.Info("Starting server")
 
 	// Run the server
-	cmd.RunAdmissionServer(&admission.Hook{
-		Config:      &controllerConfiguration,
-		Clientset:   clientset,
-		AnchoreAuth: &authConfiguration,
-	})
+	cmd.RunAdmissionServer(hook)
 }

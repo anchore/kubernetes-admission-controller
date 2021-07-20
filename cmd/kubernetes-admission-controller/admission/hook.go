@@ -26,10 +26,22 @@ import (
 // Enforcing compliance with the cmd.ValidatingAdmissionHook interface
 var _ cmd.ValidatingAdmissionHook = (*Hook)(nil)
 
+// Hook is the Anchore-specific implementation of a Kubernetes validating admission hook.
 type Hook struct {
-	Config      *ControllerConfiguration
-	Clientset   *k8s.Clientset
-	AnchoreAuth *anchore.AuthConfiguration
+	config       *ControllerConfiguration
+	clientset    *k8s.Clientset
+	anchoreAuth  *anchore.AuthConfiguration
+	imageBackend anchore.ImageBackend
+}
+
+// NewHook creates and returns a new Hook.
+func NewHook(
+	config *ControllerConfiguration,
+	clientset *k8s.Clientset,
+	anchoreAuth *anchore.AuthConfiguration,
+	imageBackend anchore.ImageBackend,
+) *Hook {
+	return &Hook{config: config, clientset: clientset, anchoreAuth: anchoreAuth, imageBackend: imageBackend}
 }
 
 func (h *Hook) Initialize(*rest.Config, <-chan struct{}) error {
@@ -142,44 +154,41 @@ func (h Hook) evaluateImage(meta metav1.ObjectMeta, imageReference string) (vali
 
 	requestQueue := anchore.NewAnalysisRequestQueue()
 
-	gateConfiguration := determineGateConfiguration(meta, imageReference, h.Config.PolicySelectors, *h.Clientset)
-	if gateConfiguration == nil {
+	c := validation.NewConfiguration(meta, imageReference, h.config.PolicySelectors, *h.clientset)
+	if c == nil {
 		// No rule matched, so skip this image
 		message := fmt.Sprintf("no selector match found for image %q", imageReference)
 		klog.Info(message)
 		return validation.Result{IsValid: true, Message: message, ImageDigest: ""}, requestQueue
 	}
+	configuration := *c
 
-	klog.Infof("gate configuration determined: %+v", *gateConfiguration)
+	klog.Infof("validation configuration determined: %+v", configuration)
 
-	imageBackend := anchore.GetImageBackend(
-		*h.AnchoreAuth,
-		gateConfiguration.PolicyReference.Username,
-		h.Config.AnchoreEndpoint,
-	)
-
-	mode := gateConfiguration.Mode
-	if !validation.IsValidMode(mode) {
-		message := fmt.Sprintf("got unexpected mode value %q for matching selector. Failing on error.", mode)
+	user, err := anchore.SelectUserCredential(h.anchoreAuth.Users, configuration.PolicyReference.Username)
+	if err != nil {
+		message := fmt.Sprintf("validation not possible: %v", err)
 		klog.Error(message)
-		return validation.Result{IsValid: false, Message: message, ImageDigest: ""}, requestQueue
+		return validation.Result{
+			IsValid: false,
+			Message: message,
+		}, requestQueue
 	}
 
-	var result validation.Result
-
-	switch gateConfiguration.Mode {
-	case validation.PolicyGateMode:
-		result = validation.Policy(imageBackend, imageReference, gateConfiguration.PolicyReference.PolicyBundleId)
-
-	case validation.AnalysisGateMode:
-		result = validation.Analysis(imageBackend, imageReference)
-
-	case validation.BreakGlassMode:
-		result = validation.BreakGlass()
+	validator, err := validation.New(configuration, h.imageBackend, user, imageReference)
+	if err != nil {
+		message := fmt.Sprintf("unable to validate: %v", err)
+		klog.Error(message)
+		return validation.Result{
+			IsValid: false,
+			Message: message,
+		}, requestQueue
 	}
 
-	if shouldRequestAnalysis(result, *h.Config) {
-		requestQueue.Add(imageBackend, imageReference)
+	result := validator()
+
+	if shouldRequestAnalysis(result, *h.config) {
+		requestQueue.Add(h.imageBackend, user, imageReference)
 	}
 
 	klog.Infof("image evaluation result: %+v", result)
