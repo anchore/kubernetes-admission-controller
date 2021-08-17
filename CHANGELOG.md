@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1
+Bug fixes
+
+- Fixes analysis request behavior in break-glass mode. Fixes #39
+
 ## v0.3.0
 
 **Breaking change: Changes the "ResourceType" value from "pod" to "resource" in the selector configuration. This is to clarify that metadata match will be against the resource being validated, which may not be a Pod, but another kind such as Deployment or ReplicaSet.**
