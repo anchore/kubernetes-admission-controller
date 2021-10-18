@@ -10,7 +10,7 @@ The Anchore admission controller supports 3 different modes of operation allowin
 ### Strict Policy-Based Admission Gating Mode
 This is the strictest mode, and will admit only images that are already analyzed by Anchore and receive a "pass" on policy evaluation. This enables you to
 ensure, for example, that no image is deployed into the cluster that has a known high-severity CVE with an available fix, or any of a number of other conditions.
-Anchore's policy language (found [here](https://anchore.freshdesk.com/support/solutions/articles/36000074705-policy-bundles-and-evaluation)) supports sophisticated conditions on the properties of images, vulnerabilities, and metadata.
+Anchore's [policy language](https://docs.anchore.com/current/docs/overview/concepts/policy/policies/) supports sophisticated conditions on the properties of images, vulnerabilities, and metadata.
 If you have a check or condition that you want to evaluate that you're not sure about, please let us [know](https://github.com/anchore/anchore-engine/issues)!
 
 Examples of Anchore Engine policy rules that are useful in a strict admission environment:
