@@ -1,4 +1,4 @@
-FROM golang:1.13-alpine AS builder
+FROM golang:1.17-alpine AS builder
 
 RUN apk add --update --no-cache ca-certificates git
 RUN mkdir -p /build
