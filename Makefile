@@ -52,7 +52,7 @@ build-debug: ## Build all binaries with remote debugging capabilities
 .PHONY: docker
 docker: ## Build a Docker image
 	@${MAKE} GOOS=linux GOARCH=amd64 build-release
-	docker build -t ${DOCKER_IMAGE} -f Dockerfile .
+	docker build --no-cache -t ${DOCKER_IMAGE} -f Dockerfile .
 
 .PHONY: goversion
 goversion:
