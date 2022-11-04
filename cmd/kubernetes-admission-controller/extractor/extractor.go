@@ -1,7 +1,7 @@
 package extractor
 
 import (
-	"k8s.io/api/admission/v1beta1"
+	admissionV1 "k8s.io/api/admission/v1"
 	appsV1 "k8s.io/api/apps/v1"
 	batchV1 "k8s.io/api/batch/v1"
 	batchV1beta "k8s.io/api/batch/v1beta1"
@@ -11,11 +11,11 @@ import (
 
 // Extractor is a function type for implementations that can respond to Kubernetes admission controller requests for
 // an object and return that object's metadata and any PodSpecs contained within the object.
-type Extractor func(v1beta1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error)
+type Extractor func(admissionV1.AdmissionRequest) (metav1.ObjectMeta, []v1.PodSpec, error)
 
 // ForAdmissionRequest returns an Extractor function for the Kubernetes object contained in the given
 // AdmissionRequest. If no Extractor is available for the given admission request, ForAdmissionRequest returns nil.
-func ForAdmissionRequest(request v1beta1.AdmissionRequest) Extractor {
+func ForAdmissionRequest(request admissionV1.AdmissionRequest) Extractor {
 	extractor, found := extractors[request.Kind]
 	if !found {
 		return nil

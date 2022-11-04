@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"encoding/json"
+	admissionV1 "k8s.io/api/admission/v1"
 	"testing"
 
 	"k8s.io/api/admission/v1beta1"
@@ -9,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func mockAdmissionRequestFromObject(t *testing.T, kind, resource string, object interface{}) v1beta1.AdmissionRequest {
+func mockAdmissionRequestFromObject(t *testing.T, kind, resource string, object interface{}) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	marshalledObject, err := json.Marshal(object)
@@ -17,7 +18,7 @@ func mockAdmissionRequestFromObject(t *testing.T, kind, resource string, object 
 		t.Fatalf("Failed to marshal %q: %v", kind, err)
 	}
 
-	return v1beta1.AdmissionRequest{
+	return admissionV1.AdmissionRequest{
 		UID:         "abc123",
 		Kind:        metav1.GroupVersionKind{Group: v1beta1.GroupName, Version: v1beta1.SchemeGroupVersion.Version, Kind: kind},
 		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: resource},

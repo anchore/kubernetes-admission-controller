@@ -1,6 +1,7 @@
 package admission
 
 import (
+	admissionV1 "k8s.io/api/admission/v1"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,15 +11,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
-	"k8s.io/api/admission/v1beta1"
 )
 
 func TestResponse(t *testing.T) {
 	testCases := []struct {
 		name     string
-		request  v1beta1.AdmissionRequest
+		request  admissionV1.AdmissionRequest
 		result   validation.Result
-		expected *v1beta1.AdmissionResponse
+		expected *admissionV1.AdmissionResponse
 	}{
 		{
 			name:    "success",
@@ -27,7 +27,7 @@ func TestResponse(t *testing.T) {
 				IsValid: true,
 				Message: testValidationResultMessage,
 			},
-			expected: &v1beta1.AdmissionResponse{
+			expected: &admissionV1.AdmissionResponse{
 				Allowed: true,
 				UID:     testUID,
 				Result: &metav1.Status{
@@ -43,7 +43,7 @@ func TestResponse(t *testing.T) {
 				IsValid: false,
 				Message: testValidationResultMessage,
 			},
-			expected: &v1beta1.AdmissionResponse{
+			expected: &admissionV1.AdmissionResponse{
 				Allowed: false,
 				UID:     testUID,
 				Result: &metav1.Status{
@@ -64,7 +64,7 @@ func TestResponse(t *testing.T) {
 }
 
 var (
-	testAdmissionRequest = v1beta1.AdmissionRequest{
+	testAdmissionRequest = admissionV1.AdmissionRequest{
 		UID: testUID,
 	}
 	testUID                     = types.UID("some-uid")

@@ -2,9 +2,7 @@ package admission
 
 import (
 	"fmt"
-
-	"github.com/openshift/generic-admission-server/pkg/cmd"
-
+	admissionV1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "k8s.io/api/core/v1"
@@ -17,14 +15,10 @@ import (
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/extractor"
 
-	"k8s.io/api/admission/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
 )
-
-// Enforcing compliance with the cmd.ValidatingAdmissionHook interface
-var _ cmd.ValidatingAdmissionHook = (*Hook)(nil)
 
 // Hook is the Anchore-specific implementation of a Kubernetes validating admission hook.
 type Hook struct {
@@ -57,7 +51,7 @@ func (h *Hook) ValidatingResource() (plural schema.GroupVersionResource, singula
 	}, "imagecheck"
 }
 
-func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
+func (h *Hook) Validate(admissionRequest *admissionV1.AdmissionRequest) *admissionV1.AdmissionResponse {
 	if admissionRequest == nil {
 		return nil
 	}
@@ -73,7 +67,7 @@ func (h *Hook) Validate(admissionRequest *v1beta1.AdmissionRequest) *v1beta1.Adm
 
 // evaluateKubernetesObject looks for container image references in the requested object and performs validation
 // based on user-supplied configuration.
-func (h Hook) evaluateKubernetesObject(request v1beta1.AdmissionRequest) (validation.Result, anchore.AnalysisRequestQueue) {
+func (h Hook) evaluateKubernetesObject(request admissionV1.AdmissionRequest) (validation.Result, anchore.AnalysisRequestQueue) {
 	queue := anchore.NewAnalysisRequestQueue()
 
 	extractFunc := extractor.ForAdmissionRequest(request)

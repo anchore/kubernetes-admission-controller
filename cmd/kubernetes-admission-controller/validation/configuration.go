@@ -1,10 +1,12 @@
 package validation
 
 import (
+	"context"
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
+	"time"
 )
 
 type Configuration struct {
@@ -64,13 +66,20 @@ func selectObjectMetaForMatching(resourceSelectorType ResourceSelectorType, obje
 	case GeneralResourceSelectorType:
 		return &objectMeta
 	case NamespaceResourceSelectorType:
-		namespace, err := clientset.CoreV1().Namespaces().Get(objectMeta.Namespace, metav1.GetOptions{})
+		ctx, cancel_fn := context.WithTimeout(context.TODO(), 5*time.Second)
+		defer cancel_fn()
+		namespace, err := clientset.CoreV1().Namespaces().Get(ctx, objectMeta.Namespace, metav1.GetOptions{})
 		if err != nil {
 			klog.Error(err)
 			return nil
 		}
 
-		return &namespace.ObjectMeta
+		if namespace != nil {
+			return &namespace.ObjectMeta
+		} else {
+			klog.Warningf("could not get a namespace information for %s", objectMeta.Namespace)
+			return nil
+		}
 	case ImageResourceSelectorType:
 		return nil
 	default:

@@ -19,7 +19,7 @@ import (
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/api/admission/v1beta1"
+	admissionV1 "k8s.io/api/admission/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,7 +29,7 @@ func TestHook_Validate(t *testing.T) {
 	testCases := []struct {
 		name                  string
 		validationMode        validation.Mode
-		admissionRequest      v1beta1.AdmissionRequest
+		admissionRequest      admissionV1.AdmissionRequest
 		isExpectedToBeAllowed bool
 	}{
 		{
@@ -563,55 +563,55 @@ func mockAnchoreAuthConfig() *anchore.AuthConfiguration {
 	}
 }
 
-func podAdmissionRequest(t *testing.T, images ...string) v1beta1.AdmissionRequest {
+func podAdmissionRequest(t *testing.T, images ...string) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	pod := newPod(t, images...)
 	return newAdmissionRequest(t, pod, podKind)
 }
 
-func deploymentAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func deploymentAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	deployment := newDeployment(t, pod)
 	return newAdmissionRequest(t, deployment, deploymentKind)
 }
 
-func jobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func jobAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	job := newJob(t, pod)
 	return newAdmissionRequest(t, job, jobKind)
 }
 
-func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func cronJobAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	cronJob := newCronJob(t, pod)
 	return newAdmissionRequest(t, cronJob, cronJobKind)
 }
 
-func daemonSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func daemonSetAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	daemonSet := newDaemonSet(t, pod)
 	return newAdmissionRequest(t, daemonSet, daemonSetKind)
 }
 
-func statefulSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func statefulSetAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	statefulSet := newStatefulSet(t, pod)
 	return newAdmissionRequest(t, statefulSet, statefulSetKind)
 }
 
-func replicaSetAdmissionRequest(t *testing.T, pod v1.Pod) v1beta1.AdmissionRequest {
+func replicaSetAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	replicaSet := newReplicaSet(t, pod)
 	return newAdmissionRequest(t, replicaSet, replicaSetKind)
 }
-func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) v1beta1.AdmissionRequest {
+func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	marshalledObject, err := json.Marshal(requestedObject)
@@ -619,7 +619,7 @@ func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.
 		t.Fatal(err)
 	}
 
-	return v1beta1.AdmissionRequest{
+	return admissionV1.AdmissionRequest{
 		UID:         "abc123",
 		Kind:        kind,
 		Resource:    metav1.GroupVersionResource{Group: metav1.GroupName, Version: "v1", Resource: "pods"},

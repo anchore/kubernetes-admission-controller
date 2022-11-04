@@ -66,6 +66,7 @@ func updateAuthConfig(fsnotify.Event) {
 }
 
 func main() {
+	klog.InitFlags(nil)
 	// Hack to fix an issue with log that makes log lines prefixed with: "logging before flag.Parse:". Do not want that
 	_ = flag.CommandLine.Parse([]string{})
 
