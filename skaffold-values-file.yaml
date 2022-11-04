@@ -4,7 +4,14 @@ logVerbosity: 8
 
 requestAnalysis: true
 
-credentialsSecret: testcreds
+# Use an existing secret
+#credentialsSecret: testcreds
+
+#
+credentials:
+  users:
+  - username: admin
+    password: foobar
 
 anchoreEndpoint: "http://anchore-anchore-engine-api.anchore.svc.cluster.local:8228"
 policySelectors:
@@ -31,7 +38,7 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBundleId: bundle2
-    Mode: policy
+    Mode: analysis
   - Selector:
       ResourceType: image
       SelectorKeyRegex: .*
@@ -39,4 +46,4 @@ policySelectors:
     PolicyReference:
       Username: admin
       PolicyBundleId: bundle2
-    Mode: analysis
+    Mode: breakglass

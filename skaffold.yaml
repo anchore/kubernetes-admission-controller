@@ -1,8 +1,10 @@
-apiVersion: skaffold/v1beta2
+apiVersion: skaffold/v1
 kind: Config
 build:
   artifacts:
     - image: skaffold-helm
+  local:
+    push: false
 deploy:
   helm:
     releases:
