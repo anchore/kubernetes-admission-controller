@@ -23,3 +23,6 @@ jobs:
 
     - name: Test
       run: make test
+
+    - name: Build Container
+      run: make docker
