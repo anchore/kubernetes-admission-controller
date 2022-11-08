@@ -1,12 +1,12 @@
 package extractor
 
 import (
+	admissionV1 "k8s.io/api/admission/v1"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/api/admission/v1beta1"
 	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 )
@@ -28,7 +28,7 @@ func TestFromDeployment(t *testing.T) {
 	assert.Contains(t, actualPodSpecs, testPodSpec)
 }
 
-func mockAdmissionRequestFromDeployment(t *testing.T, deployment appsV1.Deployment) v1beta1.AdmissionRequest {
+func mockAdmissionRequestFromDeployment(t *testing.T, deployment appsV1.Deployment) admissionV1.AdmissionRequest {
 	t.Helper()
 
 	return mockAdmissionRequestFromObject(t, "Deployment", "deployments", deployment)

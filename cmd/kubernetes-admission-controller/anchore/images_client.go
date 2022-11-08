@@ -2,9 +2,8 @@ package anchore
 
 import (
 	"context"
-	_nethttp "net/http"
-
 	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
+	_nethttp "net/http"
 )
 
 // imagesClient abstracts the Anchore Go client's images service and exposes

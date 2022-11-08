@@ -1,6 +1,5 @@
-FROM registry.access.redhat.com/ubi8/ubi:latest AS builder
+FROM golang:1.18-alpine AS builder
 
-RUN dnf install -y git golang git
 RUN mkdir -p /build
 WORKDIR /build
 COPY go.* /build/

@@ -2,12 +2,12 @@ package admission
 
 import (
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/validation"
-	"k8s.io/api/admission/v1beta1"
+	admissionV1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func response(request v1beta1.AdmissionRequest, result validation.Result) *v1beta1.AdmissionResponse {
-	return &v1beta1.AdmissionResponse{
+func response(request admissionV1.AdmissionRequest, result validation.Result) *admissionV1.AdmissionResponse {
+	return &admissionV1.AdmissionResponse{
 		Allowed: result.IsValid,
 		UID:     request.UID,
 		Result: &metav1.Status{
