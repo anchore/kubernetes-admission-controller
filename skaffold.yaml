@@ -1,17 +1,20 @@
-apiVersion: skaffold/v1
+apiVersion: skaffold/v3
 kind: Config
 build:
   artifacts:
-    - image: skaffold-helm
+  - image: skaffold-helm
   local:
     push: false
-deploy:
+manifests:
   helm:
     releases:
-      - name: skaffold-helm
-        chartPath: "anchore-admission-controller"
-        valuesFiles:
-          - skaffold-values-file.yaml
-        values:
-          image: skaffold-helm
-        namespace: skaffold
+    - name: skaffold-helm
+      chartPath: anchore-admission-controller
+      valuesFiles:
+      - skaffold-values-file.yaml
+      namespace: skaffold
+      createNamespace: true
+      setValues:
+        image: skaffold-helm
+deploy:
+  helm: {}
