@@ -2,57 +2,54 @@
 
 # Project variables
 PACKAGE = github.com/anchore/kubernetes-admission-controller
-BINARY_NAME ?= kubernetes-admission-controller
-DOCKER_IMAGE = anchore/kubernetes-admission-controller
+DOCKER_RELEASE_REPO ?= docker.io/anchore/kubernetes-admission-controller
 
 # Build variables
 BUILD_DIR ?= build
 BUILD_PACKAGE = ${PACKAGE}/cmd
-VERSION ?= $(shell git rev-parse --abbrev-ref HEAD)
+#VERSION ?= $(shell git rev-parse --abbrev-ref HEAD)
 COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_DATE ?= $(shell date +%FT%T%z)
-LDFLAGS += -X main.version=${VERSION} -X main.commitHash=${COMMIT_HASH} -X main.buildDate=${BUILD_DATE}
+LDFLAGS += -X main.version=$(VERSION) -X main.commitHash=$(COMMIT_HASH) -X main.buildDate=$(BUILD_DATE)
 export CGO_ENABLED ?= 0
 ifeq (${VERBOSE}, 1)
 	GOARGS += -v
 endif
 
+## Build variables
+IMAGE_LABELS := --image-label "org.opencontainers.image.created=$(BUILD_DATE)" \
+	--image-label "org.opencontainers.image.title=anchore-kubernetes-admission-controller" \
+	--image-label 'org.opencontainers.image.description=K8s Admission Controller using Anchore to validate images prior to admission' \
+    --image-label "org.opencontainers.image.vendor=Anchore Inc." \
+    --image-label 'org.opencontainers.image.licenses=Apache v2.0' \
+    --image-label "org.opencontainers.image.version=$(VERSION)" \
+    --image-label "org.opencontainers.image.source=${VCS_URL}" \
+    --image-label "org.opencontainers.image.revision=$(COMMIT_HASH)" \
+
+
 # Docker variables
-DOCKER_TAG ?= ${VERSION}
+DOCKER_TAG ?= $(VERSION)
 
 ANCHORE_VERSION = 156836d
 OPENAPI_GENERATOR_VERSION = v4.1.3
-GOLANG_VERSION = 1.13
+GOLANG_VERSION = 1.18
+
+ifeq "$(strip $(VERSION))" ""
+ override VERSION = $(shell git describe --always --tags --dirty)
+endif
 
 .PHONY: clean
 clean: ## Clean the working area and the project
 	rm -rf bin/ ${BUILD_DIR}/
 
-.PHONY: build
-build: goversion ## Build all binaries
+.PHONY: build-binary
+build-binary: goversion ## Build all binaries
 ifeq (${VERBOSE}, 1)
 	go env
 endif
-
 	@mkdir -p ${BUILD_DIR}
 	go build ${GOARGS} -tags "${GOTAGS}" -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/ ./cmd/...
 
-.PHONY: test
-test:
-	go test -v ./...
-
-.PHONY: build-release
-build-release: ## Build all binaries without debug information
-	@${MAKE} LDFLAGS="-w ${LDFLAGS}" GOARGS="${GOARGS} -trimpath" BUILD_DIR="${BUILD_DIR}/release" build
-
-.PHONY: build-debug
-build-debug: ## Build all binaries with remote debugging capabilities
-	@${MAKE} GOARGS="${GOARGS} -gcflags \"all=-N -l\"" BUILD_DIR="${BUILD_DIR}/debug" build
-
-.PHONY: docker
-docker: ## Build a Docker image
-	@${MAKE} GOOS=linux GOARCH=amd64 build-release
-	docker build --no-cache -t ${DOCKER_IMAGE} -f Dockerfile .
 
 .PHONY: goversion
 goversion:
@@ -85,3 +82,15 @@ generate-anchore-client: pkg/anchore/swagger.yaml ## Generate client from Anchor
 .DEFAULT_GOAL := help
 help:
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: build
+build:
+	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=ko.local ko build ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
+
+.PHONY: release
+release:
+	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=$(DOCKER_RELEASE_REPO) ko build --tags $(DOCKER_TAG) --bare ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
+
+.PHONY: test
+test:
+	go test -v ./...

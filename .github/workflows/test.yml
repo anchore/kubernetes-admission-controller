@@ -1,0 +1,28 @@
+name: test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+
+    - name: Go tests
+      run: make test
+
+    - name: Setup Ko
+      uses: imjasonh/setup-ko@v0.6
+
+    - name: Build Container
+      run: make build

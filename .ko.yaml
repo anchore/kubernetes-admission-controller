@@ -1,0 +1,15 @@
+builds:
+  - id: anchore-admission-controller
+    main: ./cmd/kubernetes-admission-controller
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -extldflags "-static"
+      - -X main.version={{ .Env.VERSION }}
+      - -X main.gitCommit={{ .Env.COMMIT_HASH }}
+      - -X main.buildDate={{ .Env.BUILD_DATE }}
+      - -X main.gitDescription=""

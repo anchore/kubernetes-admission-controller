@@ -2,12 +2,13 @@ name: default
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    # Ignore all branches for release
+    branches-ignore:
+      - "*"
+    tags:
+      - "v*"
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
     steps:
@@ -18,11 +19,11 @@ jobs:
       with:
         go-version: 1.18
 
-    - name: Build
-      run: make build
-
     - name: Test
       run: make test
 
-    - name: Build Container
-      run: make docker
+    - name: Setup Ko
+      uses: imjasonh/setup-ko@v0.6
+
+    - name: Release Container
+      run: make release

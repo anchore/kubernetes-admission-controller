@@ -3,6 +3,8 @@ kind: Config
 build:
   artifacts:
   - image: skaffold-helm
+    ko:
+      main: ./cmd/kubernetes-admission-controller
   local:
     push: false
 manifests:
