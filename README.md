@@ -179,3 +179,16 @@ To select on the name of a namespace to which a pod belongs:
 
 The controller monitors the config and credential files for updates and will automatically reload them dynamically so no restart is
 required to update rules or credentials.
+
+## Developer/Testing
+
+For development and testing this repo provides a [skaffold](https://skaffold.dev) file for repeatable test deployments using the
+kubernetes-admission-controller chart.
+
+[skaffold.yaml](skaffold.yaml) makes the assumption that the anchore-admission-controller chart is placed in root of this repo in a folder
+called `anchore-admission-controller`. The anchore-admission-controller chart is defined in the
+[anchore-charts repo](https://github.com/anchore/anchore-charts/tree/main/stable/anchore-admission-controller) so if you have that repo cloned
+locally the simplest set is to use a symlink e.g. `ln -s /path-to-anchore-charts-repo/stable/anchore-admission-controller anchore-admission-controller`
+
+Before you run `skaffold dev/run` for the first time the it may be neccessary to edit the [skaffold-values-file.yaml](skaffold-values-file.yaml) to
+ensure `anchoreEndpoint` is set correctly to point at your dev enterprise deployment.
