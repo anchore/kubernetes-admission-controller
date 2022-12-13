@@ -1,11 +1,6 @@
 builds:
   - id: anchore-admission-controller
     main: ./cmd/kubernetes-admission-controller
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -tags
-      - -trimpath
     ldflags:
       - -s -w
       - -extldflags "-static"
