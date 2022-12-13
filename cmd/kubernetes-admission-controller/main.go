@@ -70,6 +70,7 @@ func main() {
 	// Hack to fix an issue with log that makes log lines prefixed with: "logging before flag.Parse:". Do not want that
 	_ = flag.CommandLine.Parse([]string{})
 
+	klog.Info("Version: ", FromBuild())
 	// Configure
 	klog.Info("Initializing configuration")
 	configPath, found := os.LookupEnv(configFilePathEnvVar)
