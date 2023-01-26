@@ -2,8 +2,8 @@
 
 This controller is based on the [openshift generic admission controller](https://github.com/openshift/generic-admission-server).
 
-It implements a Kubernetes Dynamic Webhook controller for interacting with Anchore Engine and making admission decisions based image properties as determined during
-analysis by [Anchore Engine](https://github.com/anchore/anchore-engine).
+It implements a Kubernetes Dynamic Webhook controller for interacting with Anchore and making admission decisions based image properties as determined during
+analysis by [Anchore Enterprise](https://www.anchore.com).
 
 The Anchore admission controller supports 3 different modes of operation allowing you to tune tradeoff between control and intrusiveness for your environments. 
 
@@ -11,9 +11,8 @@ The Anchore admission controller supports 3 different modes of operation allowin
 This is the strictest mode, and will admit only images that are already analyzed by Anchore and receive a "pass" on policy evaluation. This enables you to
 ensure, for example, that no image is deployed into the cluster that has a known high-severity CVE with an available fix, or any of a number of other conditions.
 Anchore's [policy language](https://docs.anchore.com/current/docs/overview/concepts/policy/policies/) supports sophisticated conditions on the properties of images, vulnerabilities, and metadata.
-If you have a check or condition that you want to evaluate that you're not sure about, please let us [know](https://github.com/anchore/anchore-engine/issues)!
 
-Examples of Anchore Engine policy rules that are useful in a strict admission environment:
+Examples of Anchore Enterprise policy rules that are useful in a strict admission environment:
 * Reject an image if it is being pulled from dockerhub directly
 * Reject an image that has high or critical CVEs that have a fix available, but allow high-severity if no fix is available yet
 * Reject an image if it contains a blacklisted package (rpm, deb, apk, jar, python, npm, etc), where you define the blacklist
@@ -27,7 +26,7 @@ CI/CD process to determine what should run based on other factors outside the co
 ### Passive Analysis Trigger Mode
 Trigger an Anchore analysis of images, but to no block execution on analysis completion or policy evaluation of the image. This is a way to ensure that all images
 that make it to deployment (test, staging, or prod) are guaranteed to have some form of analysis audit trail available and a presence in reports and notifications
-that are managed by Anchore Engine. Image records in Anchore Engine are given an annotation of "requestor=anchore-admission-controller" to
+that are managed by Anchore. Image records in Anchore are given an annotation of "requestor=anchore-admission-controller" to
 help track their provenance.
 
 
@@ -80,7 +79,7 @@ These must all be valid credentials for the endpoint specified in the configurat
 
 The server loads the configuration from the _CONFIG_FILE_PATH_ location (defaults to _/config.json_)
 
-The configuration is a json file that contains the selector rules and endpoint for contacting anchore engine,
+The configuration is a json file that contains the selector rules and endpoint for contacting Anchore,
 the credentials are merged in from the credentials config described in the previous section.
  
 Example:
@@ -147,7 +146,7 @@ Example:
 ### Validator Config Details
 * _anchoreEndpoint_ - The api endpoint to send requests to. May be internal or external to the cluster running the controller, only must be reachable on the network
 * _enabled_ - (currently unused) boolean. In future udpates, if false, will operate in a dry-run like mode to enable testing/debugging
-* _requestanalysis_ - boolean. If set and the above two conditions do not hold (either set to false or fail in evaluation) then the controller will request an image be analyzed by the Engine, but not block for completion.
+* _requestanalysis_ - boolean. If set and the above two conditions do not hold (either set to false or fail in evaluation) then the controller will request an image be analyzed by Anchore, but not block for completion.
 
 
 ### Selectors
