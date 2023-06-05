@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	anchore "github.com/anchore/kubernetes-admission-controller/pkg/anchore/client"
-	"github.com/antihax/optional"
+	anchoreEngine "github.com/anchore/enterprise-client-go/pkg/engine"
 	"k8s.io/klog"
 )
 
@@ -18,12 +17,16 @@ type APIImageBackend struct {
 }
 
 func NewAPIImageBackend(endpoint string) APIImageBackend {
-	cfg := anchore.NewConfiguration()
+	cfg := anchoreEngine.NewConfiguration()
 	cfg.UserAgent = fmt.Sprintf("AnchoreAdmissionController-%s", cfg.UserAgent)
-	cfg.BasePath = endpoint
+	cfg.Servers = anchoreEngine.ServerConfigurations{
+		{
+			URL: endpoint,
+		},
+	}
 
 	// TODO: cert verification options?
-	client := anchore.NewAPIClient(cfg)
+	client := anchoreEngine.NewAPIClient(cfg)
 
 	return APIImageBackend{
 		client: client.ImagesApi,
@@ -31,13 +34,11 @@ func NewAPIImageBackend(endpoint string) APIImageBackend {
 }
 
 func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, error) {
-	localOptions := anchore.ListImagesOpts{}
-	localOptions.Fulltag = optional.NewString(imageReference)
 	klog.Infof("getting image %q from Anchore", imageReference)
 
 	// Find the latest image with this tag
 	ctx := authContextFromCredential(asUser)
-	images, _, err := p.client.ListImages(ctx, &localOptions)
+	images, _, err := p.client.ListImages(ctx).Fulltag(imageReference).Execute()
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
 			klog.Infof("image %q not found in Anchore", imageReference)
@@ -53,16 +54,16 @@ func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, e
 	}
 
 	sort.Slice(images, func(i int, j int) bool {
-		return images[i].CreatedAt.Before(images[j].CreatedAt)
+		return images[i].CreatedAt.Before(*images[j].CreatedAt)
 	})
 
 	image := images[0]
 
-	klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, image.AnalysisStatus, image.ImageDigest)
+	klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, *image.AnalysisStatus, *image.ImageDigest)
 
 	return Image{
-		Digest:         image.ImageDigest,
-		AnalysisStatus: image.AnalysisStatus,
+		Digest:         *image.ImageDigest,
+		AnalysisStatus: *image.AnalysisStatus,
 	}, nil
 }
 
@@ -70,18 +71,17 @@ func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
-	opts := anchore.AddImageOpts{}
-	opts.Autosubscribe = optional.NewBool(false)
+	imageTagSource := anchoreEngine.NewRegistryTagSource(imageReference)
+	imageSource := anchoreEngine.NewImageSource()
+	imageSource.SetTag(*imageTagSource)
 
-	req := anchore.ImageAnalysisRequest{
-		Tag:         imageReference,
-		Annotations: annotations,
-		CreatedAt:   time.Now().UTC().Round(time.Second),
-	}
+	request := *anchoreEngine.NewImageAnalysisRequest()
+	request.SetAnnotations(annotations)
+	request.SetSource(*imageSource)
+	request.SetCreatedAt(time.Now().UTC().Round(time.Second))
 
 	ctx := authContextFromCredential(asUser)
-	images, _, err := p.client.AddImage(ctx, req, &opts)
-
+	images, _, err := p.client.AddImage(ctx).Image(request).Autosubscribe(false).Execute()
 	if err != nil {
 		return err
 	}
@@ -94,27 +94,34 @@ func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error
 
 	klog.Info(
 		fmt.Sprintf("image analysis for image %q requested and found mapped to digest %q", imageReference,
-			image.ImageDigest),
+			*image.ImageDigest),
 	)
 
 	return nil
 }
 
 func (p APIImageBackend) DoesPolicyCheckPass(asUser Credential, imageDigest, imageTag, policyBundleID string) (bool, error) {
-	localOptions := anchore.GetImagePolicyCheckOpts{}
-	localOptions.Interactive = optional.NewBool(true)
-	if policyBundleID != "" {
-		localOptions.PolicyId = optional.NewString(policyBundleID)
-	}
-
 	ctx := authContextFromCredential(asUser)
-	evaluations, _, err := p.client.GetImagePolicyCheck(ctx, imageDigest, imageTag, &localOptions)
+	var err error
+	var evaluations []interface{}
+	if policyBundleID != "" {
+		evaluations, _, err = p.client.GetImagePolicyCheck(ctx, imageDigest).
+			Tag(imageTag).
+			Interactive(true).
+			PolicyId(policyBundleID).
+			Execute()
+	} else {
+		evaluations, _, err = p.client.GetImagePolicyCheck(ctx, imageDigest).Tag(imageTag).Interactive(true).Execute()
+	}
 	if err != nil {
 		return false, err
 	}
 
 	if len(evaluations) > 0 {
-		resultStatus := getPolicyEvaluationStatus(evaluations[0])
+		var resultStatus string
+		if resultMap, ok := evaluations[0].(map[string]interface{}); ok {
+			resultStatus = getPolicyEvaluationStatus(resultMap)
+		}
 		return strings.ToLower(resultStatus) == "pass", nil
 	}
 
@@ -139,10 +146,10 @@ func getPolicyEvaluationStatus(policyEvaluation map[string]interface{}) string {
 }
 
 func authContextFromCredential(credential Credential) context.Context {
-	basicAuthValues := anchore.BasicAuth{
+	basicAuthValues := anchoreEngine.BasicAuth{
 		UserName: credential.Username,
 		Password: credential.Password,
 	}
 
-	return context.WithValue(context.Background(), anchore.ContextBasicAuth, basicAuthValues)
+	return context.WithValue(context.Background(), anchoreEngine.ContextBasicAuth, basicAuthValues)
 }
