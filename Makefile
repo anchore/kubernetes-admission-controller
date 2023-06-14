@@ -38,6 +38,11 @@ ifeq "$(strip $(VERSION))" ""
  override VERSION = $(shell git describe --always --tags --dirty)
 endif
 
+.PHONY: bootstrap-go
+bootstrap-go:
+	$(call title,Boostrapping dependencies)
+	go mod download
+
 .PHONY: clean
 clean: ## Clean the working area and the project
 	rm -rf bin/ ${BUILD_DIR}/
@@ -63,13 +68,13 @@ help:
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build
-build:
+build: bootstrap-go
 	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=ko.local ko build ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
 
 .PHONY: release
-release:
+release: bootstrap-go
 	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=$(DOCKER_RELEASE_REPO) ko build --tags $(DOCKER_TAG) --bare ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
 
 .PHONY: test
-test:
+test: bootstrap-go
 	go test -v ./...
