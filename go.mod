@@ -1,9 +1,10 @@
 module github.com/anchore/kubernetes-admission-controller
 
-go 1.20
+go 1.21.0
 
 require (
-	github.com/anchore/enterprise-client-go v1.0.1-0.20230530214028-c5364e91c3b3
+	github.com/anchore/enterprise-client-go v1.0.1-0.20230918181600-6fa3897cc2a7
+	github.com/anchore/enterprise-client-go-v1 v0.0.0-00010101000000-000000000000
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/openshift/generic-admission-server v1.14.1-0.20230511131000-6e8e035e4fe8
 	github.com/spf13/viper v1.13.0
@@ -116,3 +117,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+replace github.com/anchore/enterprise-client-go-v1 => github.com/anchore/enterprise-client-go v1.0.1-0.20230530214028-c5364e91c3b3

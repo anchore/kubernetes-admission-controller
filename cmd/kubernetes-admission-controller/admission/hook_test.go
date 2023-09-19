@@ -260,22 +260,40 @@ func TestHook_Validate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			// arrange
-			anchoreService := mockAnchoreService()
-			defer anchoreService.Close()
+			t.Log("Anchore V1: ", testCase.name)
+			anchoreServiceV1 := mockAnchoreV1Service()
+			defer anchoreServiceV1.Close()
 
-			imageBackend := anchore.NewAPIImageBackend(anchoreService.URL)
+			imageBackendV1, err := anchore.NewAPIImageBackendV1(anchoreServiceV1.URL)
+			assert.NoError(t, err)
+
 			hook := NewHook(
+				mockControllerConfiguration(testCase.validationMode, true),
+				&kubernetes.Clientset{},
+				mockAnchoreAuthConfig(),
+				imageBackendV1,
+			)
+
+			admissionResponse := hook.Validate(&testCase.admissionRequest)
+
+			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
+
+			t.Log("Anchore V2: ", testCase.name)
+			anchoreServiceV2 := mockAnchoreService()
+			defer anchoreServiceV2.Close()
+
+			imageBackend, err := anchore.NewAPIImageBackend(anchoreServiceV2.URL)
+			assert.NoError(t, err)
+
+			hook = NewHook(
 				mockControllerConfiguration(testCase.validationMode, true),
 				&kubernetes.Clientset{},
 				mockAnchoreAuthConfig(),
 				imageBackend,
 			)
 
-			// act
-			admissionResponse := hook.Validate(&testCase.admissionRequest)
+			admissionResponse = hook.Validate(&testCase.admissionRequest)
 
-			// assert
 			assert.Equal(t, testCase.isExpectedToBeAllowed, admissionResponse.Allowed)
 		})
 	}
@@ -547,9 +565,13 @@ func mockControllerConfiguration(mode validation.Mode, shouldRequestAnalysis boo
 		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: shouldRequestAnalysis},
 		PolicySelectors: []validation.PolicySelector{
 			{
-				ResourceSelector: validation.ResourceSelector{Type: validation.ImageResourceSelectorType, SelectorKeyRegex: ".*", SelectorValueRegex: ".*"},
-				Mode:             mode,
-				PolicyReference:  anchore.PolicyReference{Username: "admin"},
+				ResourceSelector: validation.ResourceSelector{
+					Type:               validation.ImageResourceSelectorType,
+					SelectorKeyRegex:   ".*",
+					SelectorValueRegex: ".*",
+				},
+				Mode:            mode,
+				PolicyReference: anchore.PolicyReference{Username: "admin"},
 			},
 		},
 	}
@@ -558,7 +580,7 @@ func mockControllerConfiguration(mode validation.Mode, shouldRequestAnalysis boo
 func mockAnchoreAuthConfig() *anchore.AuthConfiguration {
 	return &anchore.AuthConfiguration{
 		Users: []anchore.Credential{
-			{"admin", "password"},
+			{Username: "admin", Password: "password"},
 		},
 	}
 }
@@ -611,6 +633,7 @@ func replicaSetAdmissionRequest(t *testing.T, pod v1.Pod) admissionV1.AdmissionR
 	replicaSet := newReplicaSet(t, pod)
 	return newAdmissionRequest(t, replicaSet, replicaSetKind)
 }
+
 func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.GroupVersionKind) admissionV1.AdmissionRequest {
 	t.Helper()
 
@@ -631,12 +654,73 @@ func newAdmissionRequest(t *testing.T, requestedObject interface{}, kind metav1.
 	}
 }
 
+func mockAnchoreV1Service() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/version" {
+			fmt.Fprintln(w, `{
+				"api": {},
+				"db": {
+					"schema_version": "20"
+				},
+				"service": {
+					"version": "4.2.0"
+				}
+			}`)
+			return
+		}
+
+		if r.URL.Path == "/images" {
+			switch r.URL.Query().Get("fulltag") {
+			case passingImageName:
+				fmt.Fprintln(w, mockImageLookupResponseV1(passingImageName, passingImageDigest))
+				return
+			case failingImageName:
+				fmt.Fprintln(w, mockImageLookupResponseV1(failingImageName, failingImageDigest))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, imageLookupError)
+			return
+		}
+
+		switch r.URL.Path {
+		case urlForImageCheck(passingImageDigest):
+			fmt.Fprintln(w, mockImageCheckResponseV1(passingImageName, passingImageDigest, passingStatus))
+			return
+		case urlForImageCheck(failingImageDigest):
+			fmt.Fprintln(w, mockImageCheckResponseV1(failingImageName, failingImageDigest, failingStatus))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, imageNotFound)
+	}))
+}
+
 func mockAnchoreService() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if r.URL.Path == "/images" {
-			switch r.URL.Query().Get("fulltag") {
+		if r.URL.Path == "/v2/version" {
+			fmt.Fprintln(w, `{
+				"api": {
+					"version": "2"
+				},
+				"db": {
+					"schema_version": "500"
+				},
+				"service": {
+					"version": "5.0.0"
+				}
+			}`)
+			return
+		}
+
+		if r.URL.Path == "/v2/images" {
+			switch r.URL.Query().Get("full_tag") {
 			case passingImageName:
 				fmt.Fprintln(w, mockImageLookupResponse(passingImageName, passingImageDigest))
 				return
@@ -651,10 +735,10 @@ func mockAnchoreService() *httptest.Server {
 		}
 
 		switch r.URL.Path {
-		case urlForImageCheck(passingImageDigest):
+		case fmt.Sprintf("/v2%s", urlForImageCheck(passingImageDigest)):
 			fmt.Fprintln(w, mockImageCheckResponse(passingImageName, passingImageDigest, passingStatus))
 			return
-		case urlForImageCheck(failingImageDigest):
+		case fmt.Sprintf("/v2%s", urlForImageCheck(failingImageDigest)):
 			fmt.Fprintln(w, mockImageCheckResponse(failingImageName, failingImageDigest, failingStatus))
 			return
 		}
@@ -668,7 +752,7 @@ func urlForImageCheck(imageDigest string) string {
 	return fmt.Sprintf("/images/%s/check", imageDigest)
 }
 
-func mockImageCheckResponse(imageName, imageDigest, status string) string {
+func mockImageCheckResponseV1(imageName, imageDigest, status string) string {
 	return fmt.Sprintf(`
 [
   {
@@ -687,7 +771,35 @@ func mockImageCheckResponse(imageName, imageDigest, status string) string {
 `, imageDigest, imageName, status)
 }
 
-func mockImageLookupResponse(imageName, imageDigest string) string {
+func mockImageCheckResponse(imageName, imageDigest, status string) string {
+	return fmt.Sprintf(`
+{
+    "evaluated_tag": "docker.io/%s:latest",
+    "evaluations": [
+        {
+            "comparison_image_digest": "",
+            "details": {},
+            "evaluation_problems": [],
+            "evaluation_time": "2023-09-21T21:50:37Z",
+            "final_action": "warn",
+            "final_action_reason": "policy_evaluation",
+            "image_allowlisted": false,
+            "image_denylisted": false,
+            "image_mapped_to_rule": true,
+            "matched_allowlisted_images_rule": null,
+            "matched_denylisted_images_rule": null,
+            "matched_mapping_rule": {},
+            "number_of_findings": 1,
+            "status": "%s"
+        }
+    ],
+    "image_digest": "%s",
+    "policy_id": "2c53a13c-1765-11e8-82ef-23527761d060"
+}
+`, imageName, status, imageDigest)
+}
+
+func mockImageLookupResponseV1(imageName, imageDigest string) string {
 	return fmt.Sprintf(`
 [
   {
@@ -730,6 +842,54 @@ func mockImageLookupResponse(imageName, imageDigest string) string {
     "userId": "admin"
   }
 ]
+`, imageDigest, imageDigest, imageName, imageDigest, imageName, imageDigest, imageName)
+}
+
+func mockImageLookupResponse(imageName, imageDigest string) string {
+	return fmt.Sprintf(`
+{
+  "items": [
+	  {
+		"analysis_status": "analyzed",
+		"analyzed_at": "2018-12-03T18:24:54Z",
+		"annotations": {},
+		"created_at": "2018-12-03T18:24:43Z",
+		"image_digest": "%s",
+		"image_content": {
+		  "metadata": {
+			"arch": "amd64",
+			"distro": "alpine",
+			"distro_version": "3.8.1",
+			"dockerfile_mode": "Guessed",
+			"image_size": 2206931,
+			"layer_count": 1
+		  }
+		},
+		"image_detail": [
+		  {
+			"created_at": "2018-12-03T18:24:43Z",
+			"digest": "%s",
+			"dockerfile": "RlJPTSBzY3JhdGNoCkFERCBmaWxlOjI1YzEwYjFkMWI0MWQ0NmExODI3YWQwYjBkMjM4OWMyNGRmNmQzMTQzMDAwNWZmNGU5YTJkODRlYTIzZWJkNDIgaW4gLyAKQ01EIFsiL2Jpbi9zaCJdCg==",
+			"full_digest": "docker.io/%s@%s",
+			"full_tag": "docker.io/%s:latest",
+			"image_digest": "%s",
+			"image_id": "196d12cf6ab19273823e700516e98eb1910b03b17840f9d5509f03858484d321",
+			"last_updated": "2018-12-03T18:24:54Z",
+			"registry": "docker.io",
+			"repo": "%s",
+			"tag": "latest",
+			"tag_detected_at": "2018-12-03T18:24:43Z",
+			"user_id": "admin"
+		  }
+		],
+		"image_status": "active",
+		"image_type": "docker",
+		"last_updated": "2018-12-03T18:24:54Z",
+		"parent_digest": "sha256:621c2f39f8133acb8e64023a94dbdf0d5ca81896102b9e57c0dc184cadaf5528",
+		"user_id": "admin"
+	  }
+  ]
+}
 `, imageDigest, imageDigest, imageName, imageDigest, imageName, imageDigest, imageName)
 }
 
