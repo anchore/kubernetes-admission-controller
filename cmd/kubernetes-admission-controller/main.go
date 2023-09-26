@@ -29,10 +29,12 @@ import (
 	"k8s.io/klog"
 )
 
-var authVpr *viper.Viper
-var confVpr *viper.Viper
-var controllerConfiguration admission.ControllerConfiguration
-var authConfiguration anchore.AuthConfiguration
+var (
+	authVpr                 *viper.Viper
+	confVpr                 *viper.Viper
+	controllerConfiguration admission.ControllerConfiguration
+	authConfiguration       anchore.AuthConfiguration
+)
 
 var clientset *kubernetes.Clientset
 
@@ -133,7 +135,19 @@ func main() {
 		panic(err.Error())
 	}
 
-	imageBackend := anchore.NewAPIImageBackend(controllerConfiguration.AnchoreEndpoint)
+	var imageBackend anchore.ImageBackend
+	imageBackend, err = anchore.NewAPIImageBackend(controllerConfiguration.AnchoreEndpoint)
+	if err != nil {
+		klog.Info("Error creating image backend err=", err)
+		klog.Info("Falling back to API Image Backend for API v1")
+		// Try to use the old API Image Backend that supports Anchore API v1
+		imageBackend, err = anchore.NewAPIImageBackendV1(controllerConfiguration.AnchoreEndpoint)
+		if err != nil {
+			klog.Error("Error creating image backend err=", err)
+			panic(err.Error())
+		}
+	}
+
 	hook := admission.NewHook(&controllerConfiguration, clientset, &authConfiguration, imageBackend)
 
 	klog.Info("Starting server")
