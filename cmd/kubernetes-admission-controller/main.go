@@ -17,6 +17,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/admission"
 	"github.com/anchore/kubernetes-admission-controller/cmd/kubernetes-admission-controller/anchore"
@@ -41,6 +42,7 @@ var clientset *kubernetes.Clientset
 const (
 	credsConfigFilePathEnvVar string = "CREDENTIALS_FILE_PATH"
 	configFilePathEnvVar      string = "CONFIG_FILE_PATH"
+	versionCheckDisabled      string = "VERSION_CHECK_DISABLED"
 )
 
 func updateConfig(fsnotify.Event) {
@@ -65,6 +67,13 @@ func updateAuthConfig(fsnotify.Event) {
 	if err != nil {
 		klog.Error("Error updating auth configuration. err=", err)
 	}
+}
+
+func getEnvWithDefault(key string, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
 
 func main() {
@@ -137,7 +146,7 @@ func main() {
 
 	var imageBackend anchore.ImageBackend
 	imageBackend, err = anchore.NewAPIImageBackend(controllerConfiguration.AnchoreEndpoint)
-	if err != nil {
+	if err != nil && strings.ToLower(getEnvWithDefault(versionCheckDisabled, "false")) == "false" {
 		klog.Info("Error creating image backend err=", err)
 		klog.Info("Falling back to API Image Backend for API v1")
 		// Try to use the old API Image Backend that supports Anchore API v1
