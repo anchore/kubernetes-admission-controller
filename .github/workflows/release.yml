@@ -4,7 +4,7 @@ on:
   push:
     # Ignore all branches for release
     branches-ignore:
-      - "*"
+      - "**"
     tags:
       - "v*"
 
