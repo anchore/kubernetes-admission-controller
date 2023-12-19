@@ -7,7 +7,7 @@ require (
 	github.com/anchore/enterprise-client-go-v1 v0.0.0-00010101000000-000000000000
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/openshift/generic-admission-server v1.14.1-0.20230511131000-6e8e035e4fe8
-	github.com/spf13/viper v1.18.0
+	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.8.4
 	k8s.io/api v0.27.1
 	k8s.io/apimachinery v0.27.1
