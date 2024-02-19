@@ -1,9 +1,11 @@
 apiVersion: skaffold/v3
 kind: Config
 build:
+  platforms: ["linux/arm64"]
   artifacts:
   - image: skaffold-helm
     ko:
+      fromImage: registry.access.redhat.com/ubi8/ubi-minimal:latest
       main: ./cmd/kubernetes-admission-controller
   local:
     push: false

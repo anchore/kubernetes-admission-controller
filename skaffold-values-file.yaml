@@ -13,7 +13,7 @@ credentials:
   - username: admin
     password: foobar
 
-anchoreEndpoint: "http://anchore-anchore-engine-api.anchore.svc.cluster.local:8228"
+anchoreEndpoint: "http://host.docker.internal:8228"
 policySelectors:
   - Selector:
       ResourceType: namespace
