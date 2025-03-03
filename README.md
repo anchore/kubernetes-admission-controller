@@ -32,12 +32,9 @@ help track their provenance.
 
 ## Deploy
 
-The tested way to deploy the controller is with the [Helm Chart](https://github.com/anchore/anchore-charts/tree/master/stable/anchore-admission-controller), see the chart README for more details
+The tested way to deploy the controller is with the [Helm Chart](https://github.com/anchore/anchore-charts/tree/main/stable/anchore-admission-controller), see the chart README for more details
 on its own configuration including tls/cert setup that is necessary to have the k8s apiserver contact the controller securely.
 
-## Build
-
-`make docker` Should be all that is necessary to build.
  
 ## Environment Variables
 
