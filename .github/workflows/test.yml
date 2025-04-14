@@ -22,7 +22,7 @@ jobs:
       run: make test
 
     - name: Setup Ko
-      uses: imjasonh/setup-ko@v0.7
+      uses: imjasonh/setup-ko@v0.9
 
     - name: Build Container
       run: make build
