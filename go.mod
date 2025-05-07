@@ -5,7 +5,7 @@ go 1.22.5
 require (
 	github.com/anchore/enterprise-client-go v1.0.1-0.20230918181600-6fa3897cc2a7
 	github.com/anchore/enterprise-client-go-v1 v0.0.0-00010101000000-000000000000
-	github.com/fsnotify/fsnotify v1.8.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/openshift/generic-admission-server v1.14.1-0.20231020105858-8dcc3c9b298f
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
