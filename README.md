@@ -1,5 +1,7 @@
 # Anchore Kubernetes Admission Controller
 
+> **Note: this integration requires a valid license or subscription entitlement from Anchore**
+
 This controller is based on the [openshift generic admission controller](https://github.com/openshift/generic-admission-server).
 
 It implements a Kubernetes Dynamic Webhook controller for interacting with Anchore and making admission decisions based image properties as determined during
