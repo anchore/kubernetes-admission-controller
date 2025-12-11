@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: alpine
+  name: alpine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: alpine
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        run: alpine
+    spec:
+      containers:
+      - image: alpine:latest
+        command:
+          - /bin/sh
+          - "-c"
+          - "sleep 60m"
+        imagePullPolicy: IfNotPresent
+        name: alpine
