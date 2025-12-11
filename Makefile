@@ -32,7 +32,7 @@ DOCKER_TAG ?= $(VERSION)
 
 ANCHORE_VERSION = 156836d
 OPENAPI_GENERATOR_VERSION = v4.1.3
-GOLANG_VERSION = 1.24.0
+GOLANG_VERSION = 1.25.5
 
 ifeq "$(strip $(VERSION))" ""
  override VERSION = $(shell git describe --always --tags --dirty)
