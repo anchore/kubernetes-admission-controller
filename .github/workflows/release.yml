@@ -30,8 +30,8 @@ jobs:
       run: |
         echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
       env:
-        username: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_USERNAME }}
-        password: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_PAT }}
+        DOCKER_USER: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_USERNAME }}
+        DOCKER_PASS: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_PAT }}
 
     - name: Release Container
       run: make release
