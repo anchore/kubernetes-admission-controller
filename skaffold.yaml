@@ -1,7 +1,7 @@
 apiVersion: skaffold/v3
 kind: Config
 build:
-  platforms: ["linux/arm64"]
+  platforms: ["linux/amd64"]
   artifacts:
   - image: skaffold-helm
     ko:

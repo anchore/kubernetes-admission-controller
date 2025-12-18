@@ -13,7 +13,7 @@ credentials:
   - username: admin
     password: foobar
 
-anchoreEndpoint: "http://host.docker.internal:8228"
+anchoreEndpoint: "http://172.19.0.1:8228"
 policySelectors:
   - Selector:
       ResourceType: namespace
