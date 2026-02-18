@@ -1,6 +1,6 @@
 module github.com/anchore/kubernetes-admission-controller
 
-go 1.25.7
+go 1.25
 
 require (
 	github.com/anchore/enterprise-client-go v1.0.1-0.20230918181600-6fa3897cc2a7
