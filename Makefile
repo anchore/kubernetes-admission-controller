@@ -38,6 +38,16 @@ ifeq "$(strip $(VERSION))" ""
  override VERSION = $(shell git describe --always --tags --dirty)
 endif
 
+# Release image platforms and tags.
+# Final releases (vX.Y.Z) publish the version tag + latest; prereleases (vX.Y.Z-rc0,
+# vX.Y.Z-alpha.2, ...) publish only their exact tag and never move latest.
+PLATFORMS ?= linux/amd64,linux/arm64
+ifeq ($(findstring -,$(VERSION)),)
+  RELEASE_TAGS := $(VERSION),latest
+else
+  RELEASE_TAGS := $(VERSION)
+endif
+
 .PHONY: bootstrap-go
 bootstrap-go:
 	$(call title,Boostrapping dependencies)
@@ -73,7 +83,7 @@ build: bootstrap-go
 
 .PHONY: release
 release: bootstrap-go
-	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=$(DOCKER_RELEASE_REPO) ko build --tags $(DOCKER_TAG) --bare ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
+	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=$(DOCKER_RELEASE_REPO) ko build --platform=$(PLATFORMS) --tags $(RELEASE_TAGS) --bare ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
 
 .PHONY: test
 test: bootstrap-go
