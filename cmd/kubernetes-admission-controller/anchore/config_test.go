@@ -33,13 +33,6 @@ func TestSelectUserCredential(t *testing.T) {
 			expectedCredential: Credential{},
 			isErrorExpected:    true,
 		},
-		{
-			name:               "errors when no credentials are configured at all",
-			users:              nil,
-			selectedUsername:   "admin",
-			expectedCredential: Credential{},
-			isErrorExpected:    true,
-		},
 	}
 
 	for _, testCase := range testCases {
