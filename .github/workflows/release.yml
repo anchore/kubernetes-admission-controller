@@ -15,14 +15,23 @@ jobs:
       contents: write
       packages: write
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 #v7.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
       with:
         persist-credentials: false
 
+    # go.mod is the single source of truth. We derive `1.26.x` from its go directive
+    # rather than passing go.mod to setup-go directly: go-version-file pins the exact
+    # patch, which is how this build sat on go1.26.0 and collected stdlib CVEs. The
+    # directive itself cannot float -- `go mod tidy` and dependabot `go get` always
+    # rewrite `go 1.26` back to `go 1.26.0` -- so only its major.minor is read here.
+    - name: Resolve Go version
+      id: go-version
+      run: echo "spec=$(awk '/^go /{split($2,a,"."); print a[1]"."a[2]".x"; exit}' go.mod)" >> "$GITHUB_OUTPUT"
+
     - name: Set up Go
-      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 #v6.5.0
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e #v7.0.0
       with:
-        go-version-file: 'go.mod'
+        go-version: ${{ steps.go-version.outputs.spec }}
         check-latest: true
         cache: false
 
