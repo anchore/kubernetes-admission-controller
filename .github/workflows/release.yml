@@ -17,6 +17,8 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
       with:
+        # goreleaser needs full history + tags for the changelog and version.
+        fetch-depth: 0
         persist-credentials: false
 
     # go.mod is the single source of truth. We derive `1.26.x` from its go directive
@@ -38,9 +40,6 @@ jobs:
     - name: Test
       run: make test
 
-    - name: Setup Ko
-      uses: ko-build/setup-ko@61b4d1d396f5b2e7d6bb6fefdce3dc38d1a13445 #v0.10
-
     - name: Login to Docker Hub
       id: docker-login
       run: |
@@ -49,5 +48,39 @@ jobs:
         DOCKER_USER: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_USERNAME }}
         DOCKER_PASS: ${{ secrets.ANCHOREINTEGRATIONSWRITE_DH_PAT }}
 
-    - name: Release Container
+    # goreleaser picks the tag for a commit by reverse-lexicographic refname order, so a
+    # bare vX.Y.Z tag always loses to a vX.Y.Z-rcN tag on the same commit. That would
+    # silently rebuild and republish the RC instead of the final release. The workflow
+    # already knows which tag it was triggered by, so pass it explicitly rather than
+    # letting goreleaser guess.
+    #
+    # For a final release we also pin the changelog's starting point to the previous final
+    # release. Left to itself goreleaser would start from the most recent RC, so the notes
+    # would only cover commits landed after the last RC instead of the whole release.
+    - name: Determine release tags
+      id: release-tags
+      run: |
+        echo "current=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+        if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          previous=$(git tag -l 'v*' --sort=-v:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -vx "${GITHUB_REF_NAME}" \
+            | head -1)
+          echo "Final release ${GITHUB_REF_NAME}; changelog starts from ${previous:-<none>}"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+        else
+          echo "Prerelease ${GITHUB_REF_NAME}; leaving changelog range to goreleaser"
+        fi
+
+    - name: Release
       run: make release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GORELEASER_CURRENT_TAG: ${{ steps.release-tags.outputs.current }}
+        # Empty is safe: goreleaser falls back to auto-detection.
+        GORELEASER_PREVIOUS_TAG: ${{ steps.release-tags.outputs.previous }}
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+      with:
+        name: artifacts
+        path: dist/**/*
