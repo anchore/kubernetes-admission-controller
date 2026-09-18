@@ -9,7 +9,10 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 
 WORKDIR /tmp
 
-COPY anchore-kubernetes-admission-controller /
+# Keep the binary at the same path Ko published it to (/ko-app/...): the helm
+# chart's deployment hardcodes `command: [/ko-app/kubernetes-admission-controller]`,
+# so this makes the goreleaser image a drop-in replacement with no chart change.
+COPY anchore-kubernetes-admission-controller /ko-app/kubernetes-admission-controller
 
 ARG BUILD_DATE
 ARG BUILD_VERSION
@@ -27,4 +30,4 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 USER 1000
 
-ENTRYPOINT ["/anchore-kubernetes-admission-controller"]
+ENTRYPOINT ["/ko-app/kubernetes-admission-controller"]
