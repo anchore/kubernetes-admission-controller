@@ -1,20 +1,33 @@
-FROM golang:1.26-alpine AS builder
+# Consumed by goreleaser (`dockers:` in .goreleaser.yaml): it copies the
+# already-built binary into a minimal image. This is NOT a from-source build —
+# goreleaser compiles the binary, then this Dockerfile just packages it, matching
+# the minimal/distroless base the previous Ko release produced.
+FROM gcr.io/distroless/static-debian11:debug@sha256:a0a404776dec98be120089ae42bbdfbe48c177921d856937d124d48eb8c0b951 AS build
 
-# The base tag is only a bootstrap: GOTOOLCHAIN=auto lets the go directive in go.mod
-# upgrade the toolchain, so go.mod stays the one place the Go version is bumped. The
-# golang images default to GOTOOLCHAIN=local, which would silently compile with the
-# base image's Go instead. Note this only ever upgrades -- keep the tag on the minor
-# that go.mod targets so the patch matches what CI builds.
-ENV GOTOOLCHAIN=auto
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-RUN mkdir -p /build
-WORKDIR /build
-COPY go.* /build/
-RUN go mod download
-COPY . /build
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o /anchore-kubernetes-admission-controller ./cmd/kubernetes-admission-controller/
+WORKDIR /tmp
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
+# Keep the binary at the same path Ko published it to (/ko-app/...): the helm
+# chart's deployment hardcodes `command: [/ko-app/kubernetes-admission-controller]`,
+# so this makes the goreleaser image a drop-in replacement with no chart change.
+COPY anchore-kubernetes-admission-controller /ko-app/kubernetes-admission-controller
 
-COPY --from=builder /anchore-kubernetes-admission-controller /anchore-kubernetes-admission-controller
-CMD ["/anchore-kubernetes-admission-controller"]
+ARG BUILD_DATE
+ARG BUILD_VERSION
+ARG VCS_REF
+ARG VCS_URL
+
+LABEL org.opencontainers.image.created=$BUILD_DATE
+LABEL org.opencontainers.image.title="anchore-kubernetes-admission-controller"
+LABEL org.opencontainers.image.description="K8s Admission Controller using Anchore to validate images prior to admission"
+LABEL org.opencontainers.image.source=$VCS_URL
+LABEL org.opencontainers.image.revision=$VCS_REF
+LABEL org.opencontainers.image.vendor="Anchore, Inc."
+LABEL org.opencontainers.image.version=$BUILD_VERSION
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+USER 1000
+
+ENTRYPOINT ["/ko-app/kubernetes-admission-controller"]

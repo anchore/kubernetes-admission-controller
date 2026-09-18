@@ -2,60 +2,41 @@
 
 # Project variables
 PACKAGE = github.com/anchore/kubernetes-admission-controller
-DOCKER_RELEASE_REPO ?= docker.io/anchore/kubernetes-admission-controller
 
 # Build variables
 BUILD_DIR ?= build
-BUILD_PACKAGE = ${PACKAGE}/cmd
-#VERSION ?= $(shell git rev-parse --abbrev-ref HEAD)
+BUILD_PACKAGE = ${PACKAGE}/cmd/kubernetes-admission-controller
 COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_DATE ?= $(shell date +%FT%T%z)
-LDFLAGS += -X main.version=$(VERSION) -X main.commitHash=$(COMMIT_HASH) -X main.buildDate=$(BUILD_DATE)
+# ldflags target the vars in cmd/kubernetes-admission-controller/version.go
+# (main.version / main.gitCommit / main.buildDate). NOTE: the var is gitCommit,
+# not commitHash.
+LDFLAGS += -X main.version=$(VERSION) -X main.gitCommit=$(COMMIT_HASH) -X main.buildDate=$(BUILD_DATE)
 export CGO_ENABLED ?= 0
 ifeq (${VERBOSE}, 1)
 	GOARGS += -v
 endif
 
-## Build variables
-IMAGE_LABELS := --image-label "org.opencontainers.image.created=$(BUILD_DATE)" \
-	--image-label "org.opencontainers.image.title=anchore-kubernetes-admission-controller" \
-	--image-label 'org.opencontainers.image.description=K8s Admission Controller using Anchore to validate images prior to admission' \
-    --image-label "org.opencontainers.image.vendor=Anchore Inc." \
-    --image-label 'org.opencontainers.image.licenses=Apache v2.0' \
-    --image-label "org.opencontainers.image.version=$(VERSION)" \
-    --image-label "org.opencontainers.image.source=${VCS_URL}" \
-    --image-label "org.opencontainers.image.revision=$(COMMIT_HASH)" \
-
-
-# Docker variables
-DOCKER_TAG ?= $(VERSION)
-
-ANCHORE_VERSION = 156836d
 OPENAPI_GENERATOR_VERSION = v4.1.3
 GOLANG_VERSION = $(shell awk '/^go /{print $$2; exit}' go.mod)
+
+# goreleaser replaces Ko for building + publishing the release images and the
+# GitHub Release. Pinned; installed into TEMPDIR by the release target.
+TEMPDIR = ./.tmp
+DISTDIR = ./dist
+GORELEASER_VERSION = v2.12.3
 
 ifeq "$(strip $(VERSION))" ""
  override VERSION = $(shell git describe --always --tags --dirty)
 endif
 
-# Release image platforms and tags.
-# Final releases (vX.Y.Z) publish the version tag + latest; prereleases (vX.Y.Z-rc0,
-# vX.Y.Z-alpha.2, ...) publish only their exact tag and never move latest.
-PLATFORMS ?= linux/amd64,linux/arm64
-ifeq ($(findstring -,$(VERSION)),)
-  RELEASE_TAGS := $(VERSION),latest
-else
-  RELEASE_TAGS := $(VERSION)
-endif
-
 .PHONY: bootstrap-go
 bootstrap-go:
-	$(call title,Boostrapping dependencies)
 	go mod download
 
 .PHONY: clean
 clean: ## Clean the working area and the project
-	rm -rf bin/ ${BUILD_DIR}/
+	rm -rf bin/ ${BUILD_DIR}/ $(DISTDIR) $(TEMPDIR)/goreleaser.yaml
 
 .PHONY: build-binary
 build-binary: goversion ## Build all binaries
@@ -64,7 +45,6 @@ ifeq (${VERBOSE}, 1)
 endif
 	@mkdir -p ${BUILD_DIR}
 	go build ${GOARGS} -tags "${GOTAGS}" -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/ ./cmd/...
-
 
 .PHONY: goversion
 goversion:
@@ -78,12 +58,26 @@ help:
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build
-build: bootstrap-go
-	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=ko.local ko build ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
+build: bootstrap-go ## Compile the binary locally (no image, no publish)
+	go build ${GOARGS} -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/anchore-kubernetes-admission-controller ./cmd/kubernetes-admission-controller
+
+.PHONY: install-goreleaser
+install-goreleaser:
+	@mkdir -p $(TEMPDIR)
+	[ -f "$(TEMPDIR)/goreleaser" ] || GOBIN=$(abspath $(TEMPDIR)) go install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
 .PHONY: release
-release: bootstrap-go
-	COMMIT_HASH=$(COMMIT_HASH) VERSION=$(VERSION) BUILD_DATE=$(BUILD_DATE) KO_DOCKER_REPO=$(DOCKER_RELEASE_REPO) ko build --platform=$(PLATFORMS) --tags $(RELEASE_TAGS) --bare ./cmd/kubernetes-admission-controller $(IMAGE_LABELS)
+release: bootstrap-go install-goreleaser ## Build + publish the release images, binaries, and GitHub Release
+	# create a config with the dist dir overridden (mirrors the other integrations)
+	echo "dist: $(DISTDIR)" > $(TEMPDIR)/goreleaser.yaml
+	cat .goreleaser.yaml >> $(TEMPDIR)/goreleaser.yaml
+	$(TEMPDIR)/goreleaser --clean --config $(TEMPDIR)/goreleaser.yaml
+
+.PHONY: snapshot
+snapshot: bootstrap-go install-goreleaser ## Local dry-run: build images + binaries WITHOUT publishing (for parity checks)
+	echo "dist: $(DISTDIR)" > $(TEMPDIR)/goreleaser.yaml
+	cat .goreleaser.yaml >> $(TEMPDIR)/goreleaser.yaml
+	$(TEMPDIR)/goreleaser release --skip=publish --clean --snapshot --config $(TEMPDIR)/goreleaser.yaml
 
 .PHONY: test
 test: bootstrap-go

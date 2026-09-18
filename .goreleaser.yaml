@@ -1,0 +1,103 @@
+version: 2
+
+release:
+  # auto marks vX.Y.Z-rcN tags as prereleases (so only final vX.Y.Z tags become
+  # GA releases). This is also what publishes the GitHub Release that downstream
+  # automation reacts to.
+  prerelease: auto
+
+builds:
+  - binary: anchore-kubernetes-admission-controller
+    id: generic
+    main: ./cmd/kubernetes-admission-controller
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # Set the modified timestamp on the output binary to the git timestamp (to ensure a reproducible build)
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    # ldflags target the version vars in cmd/kubernetes-admission-controller/version.go
+    # (main.version / main.gitCommit / main.gitDescription / main.buildDate).
+    ldflags: |
+      -w
+      -s
+      -extldflags '-static'
+      -X main.version={{.Version}}
+      -X main.gitCommit={{.Commit}}
+      -X main.gitDescription={{.Summary}}
+      -X main.buildDate={{.Date}}
+
+archives:
+  - id: archive-generic
+    formats: [ 'tar.gz' ]
+    ids:
+      - generic
+    name_template: 'anchore-kubernetes-admission-controller_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+dockers:
+  # amd64 image — always pushed (incl. prereleases); building block for the multi-arch manifests.
+  - image_templates:
+      - "anchore/kubernetes-admission-controller:{{ .Tag }}-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    ids:
+      - generic
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--provenance=false"
+      - "--build-arg=BUILD_DATE={{.Date}}"
+      - "--build-arg=BUILD_VERSION={{.Version}}"
+      - "--build-arg=VCS_REF={{.FullCommit}}"
+      - "--build-arg=VCS_URL={{.GitURL}}"
+
+  # arm64 image — always pushed (incl. prereleases).
+  - image_templates:
+      - "anchore/kubernetes-admission-controller:{{ .Tag }}-arm64v8"
+    goarch: arm64
+    dockerfile: Dockerfile
+    use: buildx
+    ids:
+      - generic
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--provenance=false"
+      - "--build-arg=BUILD_DATE={{.Date}}"
+      - "--build-arg=BUILD_VERSION={{.Version}}"
+      - "--build-arg=VCS_REF={{.FullCommit}}"
+      - "--build-arg=VCS_URL={{.GitURL}}"
+
+docker_manifests:
+  # Multi-arch manifests. :{Tag} omits skip_push so prereleases get a pullable
+  # multi-arch tag; latest / major / minor use skip_push: auto so a prerelease
+  # never moves them (matches the previous Ko behavior of tagging latest only on
+  # final releases).
+  - name_template: anchore/kubernetes-admission-controller:{{ .Tag }}
+    image_templates:
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-amd64
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-arm64v8
+  - name_template: anchore/kubernetes-admission-controller:latest
+    image_templates:
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-amd64
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-arm64v8
+    skip_push: auto
+  - name_template: anchore/kubernetes-admission-controller:v{{ .Major }}
+    image_templates:
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-amd64
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-arm64v8
+    skip_push: auto
+  - name_template: anchore/kubernetes-admission-controller:v{{ .Major }}.{{ .Minor }}
+    image_templates:
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-amd64
+      - anchore/kubernetes-admission-controller:{{ .Tag }}-arm64v8
+    skip_push: auto
