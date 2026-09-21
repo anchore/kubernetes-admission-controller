@@ -9,6 +9,19 @@ updates:
       prefix: "feat"
     cooldown:
       default-days: 7
+    # k8s.io/* staging modules must move together. Bumping past 0.34 (which
+    # dependabot has done twice: #253 apimachinery -> 0.36, and #283/#284
+    # client-go+apimachinery -> 0.37) leaves apiserver/component-base pinned at
+    # 0.34 and breaks the build. Hold the whole set at 0.34.x until we bump
+    # apiserver deliberately and verify the aggregated-apiserver crash from
+    # #265 doesn't return.
+    ignore:
+      - dependency-name: "k8s.io/api"
+        versions: [">=0.35.0"]
+      - dependency-name: "k8s.io/apimachinery"
+        versions: [">=0.35.0"]
+      - dependency-name: "k8s.io/client-go"
+        versions: [">=0.35.0"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
