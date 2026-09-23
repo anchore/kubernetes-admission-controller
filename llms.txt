@@ -1,0 +1,45 @@
+# Anchore Kubernetes Admission Controller
+
+A Kubernetes dynamic webhook controller that integrates with Anchore Enterprise to make admission decisions based on image security analysis and policy evaluation.
+
+## Project Overview
+
+This Go-based admission controller provides three modes of operation:
+- **Strict Policy-Based Mode**: Only admits images that pass Anchore policy evaluation
+- **Analysis-Based Mode**: Only admits images that are analyzed by Anchore (no policy requirement)  
+- **Passive Analysis Mode**: Triggers analysis but doesn't block deployment
+
+## Key Components
+
+- **Admission Webhook**: Kubernetes dynamic admission controller (`cmd/kubernetes-admission-controller/`)
+- **Image Analysis**: Integration with Anchore Enterprise API for vulnerability scanning
+- **Policy Validation**: Configurable policy-based admission decisions
+- **Resource Extraction**: Support for various Kubernetes workload types (Deployments, Pods, etc.)
+
+## Configuration
+
+The controller uses JSON configuration files for:
+- Anchore API endpoint configuration
+- User credentials management  
+- Selector rules for resource matching
+- Policy references and validation modes
+
+## Architecture
+
+Built on OpenShift's generic admission server framework, this controller:
+1. Intercepts Kubernetes admission requests
+2. Extracts container images from workload specifications
+3. Queries Anchore Enterprise for image analysis status
+4. Makes admission decisions based on configured policies
+5. Returns allow/deny responses to the Kubernetes API server
+
+## Dependencies
+
+- Kubernetes 1.24+ (Go client v0.33.4)
+- Anchore Enterprise (requires valid license)
+- OpenShift generic admission server framework
+- Go 1.24.0
+
+## Deployment
+
+Typically deployed via Helm chart with proper TLS configuration for secure communication with the Kubernetes API server.
