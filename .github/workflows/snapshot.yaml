@@ -1,0 +1,50 @@
+name: 'Snapshot'
+# Exercises the release path (goreleaser config, Dockerfile, image builds) on
+# every PR and push to main -- without this, a broken .goreleaser.yaml or
+# Dockerfile only fails when someone pushes a tag. Modeled on ecs-inventory.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  Build-Snapshot-Artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+        with:
+          persist-credentials: false
+
+      # Match test.yml: derive 1.26.x from go.mod so setup-go picks the latest
+      # patch instead of pinning to whatever exact patch go.mod currently names.
+      - name: Resolve Go version
+        id: go-version
+        run: echo "spec=$(awk '/^go /{split($2,a,"."); print a[1]"."a[2]".x"; exit}' go.mod)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e #v7.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.spec }}
+          check-latest: true
+
+      - name: Install goreleaser
+        run: make install-goreleaser
+
+      # Static validation of .goreleaser.yaml -- catches template errors and
+      # bad references without running a full build.
+      - name: goreleaser check
+        run: ./.tmp/goreleaser check --config .goreleaser.yaml
+
+      - name: Build snapshot artifacts
+        run: make snapshot
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        if: always()
+        with:
+          name: snapshot-artifacts
+          path: snapshot/**/*
