@@ -9,18 +9,35 @@ updates:
       prefix: "feat"
     cooldown:
       default-days: 7
-    # k8s.io/* staging modules must move together. Bumping past 0.34 (which
-    # dependabot has done twice: #253 apimachinery -> 0.36, and #283/#284
-    # client-go+apimachinery -> 0.37) leaves apiserver/component-base pinned at
-    # 0.34 and breaks the build. Hold the whole set at 0.34.x until we bump
-    # apiserver deliberately and verify the aggregated-apiserver crash from
-    # #265 doesn't return.
+    # k8s.io/* staging modules must move together. Bumping one leaves the
+    # others behind (indirect deps rarely re-solve) and produces a mid-set
+    # skew where apiserver@vN can't type-check against apimachinery@vM.
+    # Dependabot has done this twice: #253 (apimachinery -> 0.36) and
+    # #283/#284 (client-go+apimachinery -> 0.37) -- both broke main.
+    #
+    # Two-part guard: (1) group them so a bump is proposed as one PR
+    # covering the whole set, and (2) ignore everything >=0.35 across
+    # both direct and indirect modules -- indirect PRs are rare but do
+    # happen on security advisories, and a lone `apiserver` bump would
+    # produce the same skew from the other side. Lift both when we
+    # intentionally move to a newer minor and verify the aggregated-
+    # apiserver crash from #265 hasn't returned.
+    groups:
+      k8s-io:
+        patterns:
+          - "k8s.io/*"
     ignore:
       - dependency-name: "k8s.io/api"
         versions: [">=0.35.0"]
       - dependency-name: "k8s.io/apimachinery"
         versions: [">=0.35.0"]
       - dependency-name: "k8s.io/client-go"
+        versions: [">=0.35.0"]
+      - dependency-name: "k8s.io/apiserver"
+        versions: [">=0.35.0"]
+      - dependency-name: "k8s.io/component-base"
+        versions: [">=0.35.0"]
+      - dependency-name: "k8s.io/kms"
         versions: [">=0.35.0"]
   - package-ecosystem: "github-actions"
     directory: "/"

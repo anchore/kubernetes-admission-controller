@@ -5,7 +5,6 @@ PACKAGE = github.com/anchore/kubernetes-admission-controller
 
 # Build variables
 BUILD_DIR ?= build
-BUILD_PACKAGE = ${PACKAGE}/cmd/kubernetes-admission-controller
 COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_DATE ?= $(shell date +%FT%T%z)
 # ldflags target the vars in cmd/kubernetes-admission-controller/version.go
@@ -21,9 +20,12 @@ OPENAPI_GENERATOR_VERSION = v4.1.3
 GOLANG_VERSION = $(shell awk '/^go /{print $$2; exit}' go.mod)
 
 # goreleaser replaces Ko for building + publishing the release images and the
-# GitHub Release. Pinned; installed into TEMPDIR by the release target.
+# GitHub Release. Pinned; installed into TEMPDIR by the release target. Snapshot
+# and release write to DIFFERENT dirs so a `docker push` from a local snapshot
+# (which resolves .Tag to the last real tag) can't collide with a real release.
 TEMPDIR = ./.tmp
 DISTDIR = ./dist
+SNAPSHOTDIR = ./snapshot
 GORELEASER_VERSION = v2.12.3
 
 ifeq "$(strip $(VERSION))" ""
@@ -36,15 +38,7 @@ bootstrap-go:
 
 .PHONY: clean
 clean: ## Clean the working area and the project
-	rm -rf bin/ ${BUILD_DIR}/ $(DISTDIR) $(TEMPDIR)/goreleaser.yaml
-
-.PHONY: build-binary
-build-binary: goversion ## Build all binaries
-ifeq (${VERBOSE}, 1)
-	go env
-endif
-	@mkdir -p ${BUILD_DIR}
-	go build ${GOARGS} -tags "${GOTAGS}" -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/ ./cmd/...
+	rm -rf bin/ ${BUILD_DIR}/ $(DISTDIR) $(SNAPSHOTDIR) $(TEMPDIR)/goreleaser.yaml
 
 .PHONY: goversion
 goversion:
@@ -58,8 +52,12 @@ help:
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build
-build: bootstrap-go ## Compile the binary locally (no image, no publish)
-	go build ${GOARGS} -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/anchore-kubernetes-admission-controller ./cmd/kubernetes-admission-controller
+build: goversion bootstrap-go ## Compile the binary locally (no image, no publish)
+ifeq (${VERBOSE}, 1)
+	go env
+endif
+	@mkdir -p ${BUILD_DIR}
+	go build ${GOARGS} -tags "${GOTAGS}" -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/anchore-kubernetes-admission-controller ./cmd/kubernetes-admission-controller
 
 .PHONY: install-goreleaser
 install-goreleaser:
@@ -75,7 +73,7 @@ release: bootstrap-go install-goreleaser ## Build + publish the release images, 
 
 .PHONY: snapshot
 snapshot: bootstrap-go install-goreleaser ## Local dry-run: build images + binaries WITHOUT publishing (for parity checks)
-	echo "dist: $(DISTDIR)" > $(TEMPDIR)/goreleaser.yaml
+	echo "dist: $(SNAPSHOTDIR)" > $(TEMPDIR)/goreleaser.yaml
 	cat .goreleaser.yaml >> $(TEMPDIR)/goreleaser.yaml
 	$(TEMPDIR)/goreleaser release --skip=publish --clean --snapshot --config $(TEMPDIR)/goreleaser.yaml
 
