@@ -1,7 +1,9 @@
 # Consumed by goreleaser (`dockers:` in .goreleaser.yaml): it copies the
 # already-built binary into a minimal image. This is NOT a from-source build —
-# goreleaser compiles the binary, then this Dockerfile just packages it, matching
-# the minimal/distroless base the previous Ko release produced.
+# goreleaser compiles the binary, then this Dockerfile just packages it. The
+# base is Google's distroless-static (scratch + CA bundle + tzdata). Ko's base
+# was Chainguard's cgr.dev/chainguard/static — same shape (scratch-like, CA
+# bundle only, non-root), different vendor.
 FROM gcr.io/distroless/static-debian11:debug@sha256:a0a404776dec98be120089ae42bbdfbe48c177921d856937d124d48eb8c0b951 AS build
 
 FROM scratch
