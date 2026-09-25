@@ -31,12 +31,46 @@ builds:
       -X main.gitDescription={{.Summary}}
       -X main.buildDate={{.Date}}
 
+  # FIPS-conforming build (not FIPS-compliant -- that requires a FIPS 140-3
+  # validated module and the certified boringcrypto module, which we don't
+  # ship). CGO + GOEXPERIMENT=boringcrypto routes crypto through the boring
+  # crypto module Go embeds; the resulting binary satisfies customers whose
+  # policies require FIPS-conforming crypto without formal FIPS validation.
+  # linkmode=external + '-static' keeps the binary self-contained so the
+  # scratch-based Dockerfile still works. Linux/amd64 only -- boringcrypto
+  # has no arm64 target.
+  - binary: anchore-kubernetes-admission-controller
+    id: fips
+    main: ./cmd/kubernetes-admission-controller
+    env:
+      - CGO_ENABLED=1
+      - GOEXPERIMENT=boringcrypto
+    goos:
+      - linux
+    goarch:
+      - amd64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    # No -s: it strips the symbol table, which breaks external linkmode.
+    ldflags: |
+      -w
+      -linkmode=external
+      -extldflags '-static'
+      -X main.version={{.Version}}
+      -X main.gitCommit={{.Commit}}
+      -X main.gitDescription={{.Summary}}
+      -X main.buildDate={{.Date}}
+
 archives:
   - id: archive-generic
     formats: [ 'tar.gz' ]
     ids:
       - generic
     name_template: 'anchore-kubernetes-admission-controller_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
+  - id: archive-fips
+    formats: [ 'tar.gz' ]
+    ids:
+      - fips
+    name_template: 'anchore-kubernetes-admission-controller-fips_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
 
 changelog:
   sort: asc
@@ -76,6 +110,30 @@ dockers:
       - "--build-arg=BUILD_VERSION={{.Version}}"
       - "--build-arg=VCS_REF={{.FullCommit}}"
       - "--build-arg=VCS_URL={{.GitURL}}"
+
+  # FIPS-conforming image (amd64 only — boringcrypto has no arm64 target).
+  # skip_push: auto publishes the whole FIPS line on final releases and skips
+  # it on prereleases, matching the k8s-inventory pattern. All names below
+  # point at the same image digest; :{Tag}-fips-amd64 is kept for consumers
+  # that address arch-specific tags.
+  - image_templates:
+      - "anchore/kubernetes-admission-controller:latest-fips"
+      - "anchore/kubernetes-admission-controller:v{{ .Major }}-fips"
+      - "anchore/kubernetes-admission-controller:v{{ .Major }}.{{ .Minor }}-fips"
+      - "anchore/kubernetes-admission-controller:{{ .Tag }}-fips"
+      - "anchore/kubernetes-admission-controller:{{ .Tag }}-fips-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    ids:
+      - fips
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--provenance=false"
+      - "--build-arg=BUILD_DATE={{.Date}}"
+      - "--build-arg=BUILD_VERSION={{.Version}}"
+      - "--build-arg=VCS_REF={{.FullCommit}}"
+      - "--build-arg=VCS_URL={{.GitURL}}"
+    skip_push: auto
 
 docker_manifests:
   # Multi-arch manifests. :{Tag} omits skip_push so prereleases get a pullable

@@ -102,13 +102,23 @@ jobs:
       # digest, which is what `cosign download sbom <img>:<tag>` resolves to).
       # Missing the index attach is what made the first cut of this step a
       # regression vs. Ko -- callers using the tag would get nothing back.
+      # The FIPS image only exists on final releases (its docker line in
+      # .goreleaser.yaml uses skip_push: auto), so its SBOM is only attached
+      # on final tags. All FIPS tag variants (latest-fips, vX-fips, vX.Y-fips,
+      # {tag}-fips-amd64) share the same digest as {tag}-fips, so one attach
+      # against {tag}-fips makes the SBOM discoverable from any of them.
       run: |
         set -euo pipefail
         IMAGE=anchore/kubernetes-admission-controller
-        for ref in \
-          "${IMAGE}:${GITHUB_REF_NAME}-amd64" \
-          "${IMAGE}:${GITHUB_REF_NAME}-arm64v8" \
-          "${IMAGE}:${GITHUB_REF_NAME}"; do
+        refs=(
+          "${IMAGE}:${GITHUB_REF_NAME}-amd64"
+          "${IMAGE}:${GITHUB_REF_NAME}-arm64v8"
+          "${IMAGE}:${GITHUB_REF_NAME}"
+        )
+        if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          refs+=("${IMAGE}:${GITHUB_REF_NAME}-fips")
+        fi
+        for ref in "${refs[@]}"; do
           sbom="sbom-$(echo "${ref}" | tr ':/' '__').spdx.json"
           syft "${ref}" -o spdx-json="${sbom}"
           cosign attach sbom --sbom "${sbom}" --type spdx "${ref}"
