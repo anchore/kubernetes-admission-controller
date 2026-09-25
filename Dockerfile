@@ -30,6 +30,11 @@ LABEL org.opencontainers.image.vendor="Anchore, Inc."
 LABEL org.opencontainers.image.version=$BUILD_VERSION
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
-USER 1000
+# Preserve the UID Ko's chainguard-static base ran as. The chart doesn't pin
+# runAsUser, so any non-root UID would technically work, but a customer with
+# a policy engine (OPA/Kyverno/PSP) codifying runAsUser: 65532 against the
+# previous image would fail admission on the upgrade -- keep 65532 to make
+# the goreleaser image a drop-in for those environments.
+USER 65532
 
 ENTRYPOINT ["/ko-app/kubernetes-admission-controller"]
