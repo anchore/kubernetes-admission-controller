@@ -9,18 +9,6 @@ updates:
       prefix: "feat"
     cooldown:
       default-days: 7
-    # k8s.io/* staging modules must move together: apiserver@vN can't
-    # type-check against apimachinery@vM. Dependabot has broken main
-    # twice by bumping only part of the set (#253 apimachinery -> 0.36,
-    # #283/#284 client-go+apimachinery -> 0.37). Group them so a bump
-    # lands as one reviewable PR covering the whole set, and don't
-    # auto-merge k8s.io/* -- a human has to look at the grouped PR,
-    # verify the aggregated-apiserver crash from #265 hasn't come back,
-    # and merge intentionally.
-    groups:
-      k8s-io:
-        patterns:
-          - "k8s.io/*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
