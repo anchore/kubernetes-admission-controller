@@ -9,36 +9,18 @@ updates:
       prefix: "feat"
     cooldown:
       default-days: 7
-    # k8s.io/* staging modules must move together. Bumping one leaves the
-    # others behind (indirect deps rarely re-solve) and produces a mid-set
-    # skew where apiserver@vN can't type-check against apimachinery@vM.
-    # Dependabot has done this twice: #253 (apimachinery -> 0.36) and
-    # #283/#284 (client-go+apimachinery -> 0.37) -- both broke main.
-    #
-    # Two-part guard: (1) group them so a bump is proposed as one PR
-    # covering the whole set, and (2) ignore everything >=0.35 across
-    # both direct and indirect modules -- indirect PRs are rare but do
-    # happen on security advisories, and a lone `apiserver` bump would
-    # produce the same skew from the other side. Lift both when we
-    # intentionally move to a newer minor and verify the aggregated-
-    # apiserver crash from #265 hasn't returned.
+    # k8s.io/* staging modules must move together: apiserver@vN can't
+    # type-check against apimachinery@vM. Dependabot has broken main
+    # twice by bumping only part of the set (#253 apimachinery -> 0.36,
+    # #283/#284 client-go+apimachinery -> 0.37). Group them so a bump
+    # lands as one reviewable PR covering the whole set, and don't
+    # auto-merge k8s.io/* -- a human has to look at the grouped PR,
+    # verify the aggregated-apiserver crash from #265 hasn't come back,
+    # and merge intentionally.
     groups:
       k8s-io:
         patterns:
           - "k8s.io/*"
-    ignore:
-      - dependency-name: "k8s.io/api"
-        versions: [">=0.35.0"]
-      - dependency-name: "k8s.io/apimachinery"
-        versions: [">=0.35.0"]
-      - dependency-name: "k8s.io/client-go"
-        versions: [">=0.35.0"]
-      - dependency-name: "k8s.io/apiserver"
-        versions: [">=0.35.0"]
-      - dependency-name: "k8s.io/component-base"
-        versions: [">=0.35.0"]
-      - dependency-name: "k8s.io/kms"
-        versions: [">=0.35.0"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
