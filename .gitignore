@@ -24,3 +24,8 @@ validating-webhook.yaml
 anchore-admission-controller
 build
 pkg/anchore/**/docs
+
+# goreleaser: release artifacts, snapshot artifacts, and the pinned toolchain
+dist/
+snapshot/
+.tmp/
