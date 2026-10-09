@@ -68,14 +68,17 @@ jobs:
       run: |
         echo "current=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
         if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          # awk (not grep|head): the no-match case (first final of a prefix, no
-          # older final tag) must exit 0. A grep with no matches exits 1, which
-          # under the runner's `set -eo pipefail` aborts the step before
-          # `previous` is written. Reads to EOF (no early exit -> no SIGPIPE),
-          # prints only the first (highest, git pre-sorted) final that isn't
-          # the tag being released.
+          # Previous final = the highest final that sorts *below* the tag being
+          # released, not the highest overall. Release lines are tagged in
+          # parallel, so for a patch on an older line (v5.27.4) a newer line's
+          # final (v6.2.3) would move the log's merge-base back to where the old
+          # branch forked and pull the whole branch into the notes. A new
+          # minor/major (v6.3.0) still gets the latest final of the line before it.
+          # Nothing below it: `previous` stays empty and goreleaser auto-detects.
+          # awk (not grep|head) so the no-match case exits 0 and it reads to EOF
+          # (no SIGPIPE), safe under the default `bash -e` and under pipefail.
           previous=$(git tag -l 'v*' --sort=-v:refname \
-            | awk -v cur="${GITHUB_REF_NAME}" '/^v[0-9]+\.[0-9]+\.[0-9]+$/ && $0 != cur && !seen { print; seen=1 }')
+            | awk -v cur="${GITHUB_REF_NAME}" '/^v[0-9]+\.[0-9]+\.[0-9]+$/ && past && !seen { print; seen=1 } $0 == cur { past=1 }')
           echo "Final release ${GITHUB_REF_NAME}; changelog starts from ${previous:-<none>}"
           echo "previous=${previous}" >> "$GITHUB_OUTPUT"
         else
