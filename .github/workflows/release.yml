@@ -8,6 +8,12 @@ on:
     tags:
       - "v*"
 
+# Workflow-level minimum. The `build` job elevates to contents: write / packages: write
+# for the GitHub Release + image push; reusable workflows called below inherit this
+# baseline and declare whatever more they need internally.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -62,10 +68,17 @@ jobs:
       run: |
         echo "current=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
         if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          # Previous final = the highest final that sorts *below* the tag being
+          # released, not the highest overall. Release lines are tagged in
+          # parallel, so for a patch on an older line (v5.27.4) a newer line's
+          # final (v6.2.3) would move the log's merge-base back to where the old
+          # branch forked and pull the whole branch into the notes. A new
+          # minor/major (v6.3.0) still gets the latest final of the line before it.
+          # Nothing below it: `previous` stays empty and goreleaser auto-detects.
+          # awk (not grep|head) so the no-match case exits 0 and it reads to EOF
+          # (no SIGPIPE), safe under the default `bash -e` and under pipefail.
           previous=$(git tag -l 'v*' --sort=-v:refname \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | grep -vx "${GITHUB_REF_NAME}" \
-            | head -1)
+            | awk -v cur="${GITHUB_REF_NAME}" '/^v[0-9]+\.[0-9]+\.[0-9]+$/ && past && !seen { print; seen=1 } $0 == cur { past=1 }')
           echo "Final release ${GITHUB_REF_NAME}; changelog starts from ${previous:-<none>}"
           echo "previous=${previous}" >> "$GITHUB_OUTPUT"
         else
@@ -135,3 +148,30 @@ jobs:
         path: |
           dist/**/*
           sbom-*.spdx.json
+
+  # Fire the e2e suite in CircleCI on RC tags only. The reusable workflow passes
+  # the RC tag through to the suite, which pulls the just-published image, and
+  # on pass invokes the e2e-callback that the Lambda converts into the gated
+  # GA dispatch. Non-RC runs (GA tags) skip this step entirely.
+  trigger-e2e:
+    needs: [build]
+    if: ${{ contains(github.ref_name, '-rc') }}
+    uses: $/.github/workflows/trigger-circleci-e2e.yaml
+    with:
+      tag: ${{ github.ref_name }}
+      promote: true
+    secrets: inherit # zizmor: ignore[secrets-inherit] required to reach the e2e env secrets from the reusable workflow
+
+  # Slack alert on any failure in this workflow (build/publish/e2e-trigger).
+  # needs: lists every prior job so failure() can observe them -- a job that
+  # was skipped (trigger-e2e on a GA run) is not a failure, so clean GAs stay
+  # quiet.
+  notify-failure:
+    needs: [build, trigger-e2e]
+    if: ${{ failure() }}
+    uses: $/.github/workflows/notify-slack-failure.yaml
+    with:
+      subject: ${{ github.ref_name }}
+    secrets:
+      # left = reusable workflow's generic input; right = the actual repo/org secret
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_ANCHORE_INTEGRATION_RELEASE_ALERTS }}
