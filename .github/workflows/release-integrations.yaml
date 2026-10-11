@@ -196,7 +196,7 @@ jobs:
   notify-failure:
     needs: [tag]
     if: ${{ failure() }}
-    uses: ./.github/workflows/notify-slack-failure.yaml
+    uses: $/.github/workflows/notify-slack-failure.yaml
     with:
       subject: ${{ inputs.version }}
     secrets:
