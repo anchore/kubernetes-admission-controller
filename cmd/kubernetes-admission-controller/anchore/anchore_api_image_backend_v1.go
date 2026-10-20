@@ -46,9 +46,16 @@ func NewAPIImageBackendV1(endpoint string) (APIImageBackendV1, error) {
 func (p APIImageBackendV1) Get(asUser Credential, imageReference string) (Image, error) {
 	klog.Infof("getting image %q from Anchore", imageReference)
 
+	ref := parseImageReference(imageReference)
+
 	// Find the latest image with this tag
 	ctx := authContextFromCredentialV1(asUser)
-	images, _, err := p.client.ListImages(ctx).Fulltag(imageReference).Execute()
+	listRequest := p.client.ListImages(ctx).Fulltag(ref.tag)
+	if ref.isDigestPinned() {
+		// Include images the tag pointed to earlier, so a pinned digest is found after the tag moves on.
+		listRequest = listRequest.History(true)
+	}
+	images, _, err := listRequest.Execute()
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
 			klog.Infof("image %q not found in Anchore", imageReference)
@@ -61,6 +68,21 @@ func (p APIImageBackendV1) Get(asUser Credential, imageReference string) (Image,
 
 	if len(images) == 0 {
 		return Image{}, fmt.Errorf("no images found with tag %q", imageReference)
+	}
+
+	// A digest-pinned reference only matches the image with that digest, not whatever the tag points to now.
+	if ref.isDigestPinned() {
+		var pinned []anchoreEngine.AnchoreImage
+		for _, image := range images {
+			if ref.matchesDigest(image.ImageDigest, image.ParentDigest) {
+				pinned = append(pinned, image)
+			}
+		}
+		if len(pinned) == 0 {
+			klog.Infof("image %q not found in Anchore", imageReference)
+			return Image{}, ErrImageDoesNotExist
+		}
+		images = pinned
 	}
 
 	sort.Slice(images, func(i int, j int) bool {
@@ -81,9 +103,13 @@ func (p APIImageBackendV1) Analyze(asUser Credential, imageReference string) err
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
-	imageTagSource := anchoreEngine.NewRegistryTagSource(imageReference)
+	ref := parseImageReference(imageReference)
 	imageSource := anchoreEngine.NewImageSource()
-	imageSource.SetTag(*imageTagSource)
+	if ref.isDigestPinned() {
+		imageSource.SetDigest(*anchoreEngine.NewRegistryDigestSource(ref.digestPullString(), ref.tag))
+	} else {
+		imageSource.SetTag(*anchoreEngine.NewRegistryTagSource(imageReference))
+	}
 
 	request := *anchoreEngine.NewImageAnalysisRequest()
 	request.SetAnnotations(annotations)
@@ -111,6 +137,7 @@ func (p APIImageBackendV1) Analyze(asUser Credential, imageReference string) err
 }
 
 func (p APIImageBackendV1) DoesPolicyCheckPass(asUser Credential, imageDigest, imageTag, policyBundleID string) (bool, error) {
+	imageTag = parseImageReference(imageTag).tag
 	ctx := authContextFromCredentialV1(asUser)
 	var err error
 	var evaluations []interface{}
