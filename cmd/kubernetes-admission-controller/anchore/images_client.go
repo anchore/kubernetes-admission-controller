@@ -16,6 +16,10 @@ type imagesClientV1 interface {
 	ListImages(
 		ctx context.Context,
 	) anchoreEngine.ApiListImagesRequest
+	GetImage(
+		ctx context.Context,
+		imageDigest string,
+	) anchoreEngine.ApiGetImageRequest
 	GetImagePolicyCheck(
 		ctx context.Context,
 		imageDigest string,
@@ -29,6 +33,10 @@ type imagesClient interface {
 	ListImages(
 		ctx context.Context,
 	) anchoreEnterprise.ApiListImagesRequest
+	GetImage(
+		ctx context.Context,
+		imageDigest string,
+	) anchoreEnterprise.ApiGetImageRequest
 	GetImagePolicyCheckByDigest(
 		ctx context.Context,
 		imageDigest string,

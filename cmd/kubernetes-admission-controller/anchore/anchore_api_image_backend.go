@@ -49,9 +49,23 @@ func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, e
 	klog.Infof("getting image %q from Anchore", imageReference)
 
 	ref := parseImageReference(imageReference)
+	ctx := authContextFromCredential(asUser)
+
+	if ref.isDigestPinned() {
+		image, found, err := p.getByDigest(ctx, ref)
+		if err != nil {
+			klog.Errorf("error retrieving image %q from Anchore: %v", imageReference, err)
+			return Image{}, err
+		}
+		if found {
+			klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, image.AnalysisStatus, image.Digest)
+			return image, nil
+		}
+		// The pinned digest can be a multi-platform manifest list digest, which Anchore stores as the parent
+		// digest of the platform-specific image and does not look up directly, so fall back to the tag's images.
+	}
 
 	// Find the latest image with this tag
-	ctx := authContextFromCredential(asUser)
 	listRequest := p.client.ListImages(ctx).FullTag(ref.tag)
 	if ref.isDigestPinned() {
 		// Include images the tag pointed to earlier, so a pinned digest is found after the tag moves on.
@@ -100,6 +114,23 @@ func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, e
 		Digest:         *image.ImageDigest,
 		AnalysisStatus: *image.AnalysisStatus,
 	}, nil
+}
+
+// getByDigest looks up the image whose digest is the reference's pinned digest, regardless of which tag it was
+// analyzed under. It reports found as false when Anchore has no image with that digest.
+func (p APIImageBackend) getByDigest(ctx context.Context, ref imageReference) (Image, bool, error) {
+	image, _, err := p.client.GetImage(ctx, ref.digest).Execute()
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			return Image{}, false, nil
+		}
+		return Image{}, false, err
+	}
+
+	return Image{
+		Digest:         image.GetImageDigest(),
+		AnalysisStatus: image.GetAnalysisStatus(),
+	}, true, nil
 }
 
 func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error {
