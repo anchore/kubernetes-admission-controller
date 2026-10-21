@@ -46,9 +46,30 @@ func NewAPIImageBackendV1(endpoint string) (APIImageBackendV1, error) {
 func (p APIImageBackendV1) Get(asUser Credential, imageReference string) (Image, error) {
 	klog.Infof("getting image %q from Anchore", imageReference)
 
-	// Find the latest image with this tag
+	ref := parseImageReference(imageReference)
 	ctx := authContextFromCredentialV1(asUser)
-	images, _, err := p.client.ListImages(ctx).Fulltag(imageReference).Execute()
+
+	if ref.isDigestPinned() {
+		image, found, err := p.getByDigest(ctx, ref)
+		if err != nil {
+			klog.Errorf("error retrieving image %q from Anchore: %v", imageReference, err)
+			return Image{}, err
+		}
+		if found {
+			klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, image.AnalysisStatus, image.Digest)
+			return image, nil
+		}
+		// The pinned digest can be a multi-platform manifest list digest, which Anchore stores as the parent
+		// digest of the platform-specific image and does not look up directly, so fall back to the tag's images.
+	}
+
+	// Find the latest image with this tag
+	listRequest := p.client.ListImages(ctx).Fulltag(ref.tag)
+	if ref.isDigestPinned() {
+		// Include images the tag pointed to earlier, so a pinned digest is found after the tag moves on.
+		listRequest = listRequest.History(true)
+	}
+	images, _, err := listRequest.Execute()
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
 			klog.Infof("image %q not found in Anchore", imageReference)
@@ -61,6 +82,21 @@ func (p APIImageBackendV1) Get(asUser Credential, imageReference string) (Image,
 
 	if len(images) == 0 {
 		return Image{}, fmt.Errorf("no images found with tag %q", imageReference)
+	}
+
+	// A digest-pinned reference only matches the image with that digest, not whatever the tag points to now.
+	if ref.isDigestPinned() {
+		var pinned []anchoreEngine.AnchoreImage
+		for _, image := range images {
+			if ref.matchesDigest(image.ImageDigest, image.ParentDigest) {
+				pinned = append(pinned, image)
+			}
+		}
+		if len(pinned) == 0 {
+			klog.Infof("image %q not found in Anchore", imageReference)
+			return Image{}, ErrImageDoesNotExist
+		}
+		images = pinned
 	}
 
 	sort.Slice(images, func(i int, j int) bool {
@@ -77,13 +113,37 @@ func (p APIImageBackendV1) Get(asUser Credential, imageReference string) (Image,
 	}, nil
 }
 
+// getByDigest looks up the image whose digest is the reference's pinned digest, regardless of which tag it was
+// analyzed under. It reports found as false when Anchore has no image with that digest.
+func (p APIImageBackendV1) getByDigest(ctx context.Context, ref imageReference) (Image, bool, error) {
+	images, _, err := p.client.GetImage(ctx, ref.digest).Execute()
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			return Image{}, false, nil
+		}
+		return Image{}, false, err
+	}
+	if len(images) == 0 {
+		return Image{}, false, nil
+	}
+
+	return Image{
+		Digest:         images[0].GetImageDigest(),
+		AnalysisStatus: images[0].GetAnalysisStatus(),
+	}, true, nil
+}
+
 func (p APIImageBackendV1) Analyze(asUser Credential, imageReference string) error {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
-	imageTagSource := anchoreEngine.NewRegistryTagSource(imageReference)
+	ref := parseImageReference(imageReference)
 	imageSource := anchoreEngine.NewImageSource()
-	imageSource.SetTag(*imageTagSource)
+	if ref.isDigestPinned() {
+		imageSource.SetDigest(*anchoreEngine.NewRegistryDigestSource(ref.digestPullString(), ref.tag))
+	} else {
+		imageSource.SetTag(*anchoreEngine.NewRegistryTagSource(imageReference))
+	}
 
 	request := *anchoreEngine.NewImageAnalysisRequest()
 	request.SetAnnotations(annotations)
@@ -111,6 +171,7 @@ func (p APIImageBackendV1) Analyze(asUser Credential, imageReference string) err
 }
 
 func (p APIImageBackendV1) DoesPolicyCheckPass(asUser Credential, imageDigest, imageTag, policyBundleID string) (bool, error) {
+	imageTag = parseImageReference(imageTag).tag
 	ctx := authContextFromCredentialV1(asUser)
 	var err error
 	var evaluations []interface{}

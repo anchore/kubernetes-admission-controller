@@ -48,9 +48,30 @@ func NewAPIImageBackend(endpoint string) (APIImageBackend, error) {
 func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, error) {
 	klog.Infof("getting image %q from Anchore", imageReference)
 
-	// Find the latest image with this tag
+	ref := parseImageReference(imageReference)
 	ctx := authContextFromCredential(asUser)
-	imageList, _, err := p.client.ListImages(ctx).FullTag(imageReference).Execute()
+
+	if ref.isDigestPinned() {
+		image, found, err := p.getByDigest(ctx, ref)
+		if err != nil {
+			klog.Errorf("error retrieving image %q from Anchore: %v", imageReference, err)
+			return Image{}, err
+		}
+		if found {
+			klog.Infof("image found for %q (status: %q, digest: %q)", imageReference, image.AnalysisStatus, image.Digest)
+			return image, nil
+		}
+		// The pinned digest can be a multi-platform manifest list digest, which Anchore stores as the parent
+		// digest of the platform-specific image and does not look up directly, so fall back to the tag's images.
+	}
+
+	// Find the latest image with this tag
+	listRequest := p.client.ListImages(ctx).FullTag(ref.tag)
+	if ref.isDigestPinned() {
+		// Include images the tag pointed to earlier, so a pinned digest is found after the tag moves on.
+		listRequest = listRequest.History(true)
+	}
+	imageList, _, err := listRequest.Execute()
 	images := imageList.GetItems()
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
@@ -64,6 +85,21 @@ func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, e
 
 	if len(images) == 0 {
 		return Image{}, fmt.Errorf("no images found with tag %q", imageReference)
+	}
+
+	// A digest-pinned reference only matches the image with that digest, not whatever the tag points to now.
+	if ref.isDigestPinned() {
+		var pinned []anchoreEnterprise.AnchoreImage
+		for _, image := range images {
+			if ref.matchesDigest(image.ImageDigest, image.ParentDigest) {
+				pinned = append(pinned, image)
+			}
+		}
+		if len(pinned) == 0 {
+			klog.Infof("image %q not found in Anchore", imageReference)
+			return Image{}, ErrImageDoesNotExist
+		}
+		images = pinned
 	}
 
 	sort.Slice(images, func(i int, j int) bool {
@@ -80,13 +116,34 @@ func (p APIImageBackend) Get(asUser Credential, imageReference string) (Image, e
 	}, nil
 }
 
+// getByDigest looks up the image whose digest is the reference's pinned digest, regardless of which tag it was
+// analyzed under. It reports found as false when Anchore has no image with that digest.
+func (p APIImageBackend) getByDigest(ctx context.Context, ref imageReference) (Image, bool, error) {
+	image, _, err := p.client.GetImage(ctx, ref.digest).Execute()
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "404 not found") {
+			return Image{}, false, nil
+		}
+		return Image{}, false, err
+	}
+
+	return Image{
+		Digest:         image.GetImageDigest(),
+		AnalysisStatus: image.GetAnalysisStatus(),
+	}, true, nil
+}
+
 func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error {
 	annotations := make(map[string]interface{})
 	annotations["requestor"] = "anchore-admission-controller"
 
-	imageTagSource := anchoreEnterprise.NewRegistryTagSource(imageReference)
+	ref := parseImageReference(imageReference)
 	imageSource := anchoreEnterprise.NewImageSource()
-	imageSource.SetTag(*imageTagSource)
+	if ref.isDigestPinned() {
+		imageSource.SetDigest(*anchoreEnterprise.NewRegistryDigestSource(ref.digestPullString(), ref.tag))
+	} else {
+		imageSource.SetTag(*anchoreEnterprise.NewRegistryTagSource(imageReference))
+	}
 
 	request := *anchoreEnterprise.NewImageAnalysisRequest()
 	request.SetAnnotations(annotations)
@@ -107,6 +164,7 @@ func (p APIImageBackend) Analyze(asUser Credential, imageReference string) error
 }
 
 func (p APIImageBackend) DoesPolicyCheckPass(asUser Credential, imageDigest, imageTag, policyBundleID string) (bool, error) {
+	imageTag = parseImageReference(imageTag).tag
 	ctx := authContextFromCredential(asUser)
 	var err error
 	var evaluation interface{}
