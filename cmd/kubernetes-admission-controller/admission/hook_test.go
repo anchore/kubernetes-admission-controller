@@ -440,6 +440,122 @@ func TestHook_Validate_AnalysisRequestDispatching(t *testing.T) {
 	}
 }
 
+func TestHook_Validate_InitAndEphemeralContainersAreNotValidated(t *testing.T) {
+	// Pins current behavior: only spec.containers is gated. Images in
+	// spec.initContainers and spec.ephemeralContainers are admitted without any
+	// validation, even in policy mode. If gating is ever extended to cover these
+	// container types, this test should be updated to assert the new behavior.
+	mainImage := "some-image:latest"
+	initImage := "some-unanalyzed-init-image:latest"
+	ephemeralImage := "some-unanalyzed-ephemeral-image:latest"
+
+	analyzedImage := anchore.Image{
+		Digest:         "abcdef123456",
+		AnalysisStatus: anchore.ImageStatusAnalyzed,
+	}
+
+	imageBackend := &anchore.MockImageBackend{}
+	imageBackend.On("Get", mock.AnythingOfType("anchore.Credential"), mainImage).Return(analyzedImage, nil)
+	imageBackend.On("DoesPolicyCheckPass", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(true, nil)
+
+	hook := NewHook(
+		mockControllerConfiguration(validation.PolicyGateMode, false),
+		&kubernetes.Clientset{},
+		mockAnchoreAuthConfig(),
+		imageBackend,
+	)
+
+	pod := newPod(t, mainImage)
+	pod.Spec.InitContainers = []v1.Container{
+		{Name: "an-init-container", Image: initImage},
+	}
+	pod.Spec.EphemeralContainers = []v1.EphemeralContainer{
+		{EphemeralContainerCommon: v1.EphemeralContainerCommon{Name: "a-debug-container", Image: ephemeralImage}},
+	}
+	request := newAdmissionRequest(t, pod, podKind)
+
+	admissionResponse := hook.Validate(&request)
+
+	assert.True(t, admissionResponse.Allowed)
+	imageBackend.AssertNotCalled(t, "Get", mock.Anything, initImage)
+	imageBackend.AssertNotCalled(t, "Get", mock.Anything, ephemeralImage)
+}
+
+func TestHook_Validate_AdmitsByDefault(t *testing.T) {
+	// The controller is permissive by default: requests it cannot or should not
+	// evaluate are admitted rather than denied. These branches are security
+	// relevant — a regression here silently widens or narrows the gate — so each
+	// one is pinned, along with the fact that no Anchore call is made.
+	nonMatchingSelectorConfiguration := &ControllerConfiguration{
+		Validator: ValidatorConfiguration{Enabled: true, RequestAnalysis: false},
+		PolicySelectors: []validation.PolicySelector{
+			{
+				ResourceSelector: validation.ResourceSelector{
+					Type:               validation.ImageResourceSelectorType,
+					SelectorKeyRegex:   ".*",
+					SelectorValueRegex: "^registry\\.example\\.com/.*",
+				},
+				Mode:            validation.PolicyGateMode,
+				PolicyReference: anchore.PolicyReference{Username: "admin"},
+			},
+		},
+	}
+
+	podWithNoContainers := v1.Pod{
+		ObjectMeta: testPodObjectMeta,
+		Spec:       v1.PodSpec{},
+	}
+
+	serviceKind := metav1.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "Service",
+	}
+
+	testCases := []struct {
+		name             string
+		configuration    *ControllerConfiguration
+		admissionRequest admissionV1.AdmissionRequest
+	}{
+		{
+			name:             "no selector matches the image",
+			configuration:    nonMatchingSelectorConfiguration,
+			admissionRequest: podAdmissionRequest(t, "some-image:latest"),
+		},
+		{
+			name:             "unsupported resource kind",
+			configuration:    mockControllerConfiguration(validation.PolicyGateMode, false),
+			admissionRequest: newAdmissionRequest(t, v1.Service{}, serviceKind),
+		},
+		{
+			name:             "pod with zero containers",
+			configuration:    mockControllerConfiguration(validation.PolicyGateMode, false),
+			admissionRequest: newAdmissionRequest(t, podWithNoContainers, podKind),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			imageBackend := &anchore.MockImageBackend{}
+
+			hook := NewHook(
+				testCase.configuration,
+				&kubernetes.Clientset{},
+				mockAnchoreAuthConfig(),
+				imageBackend,
+			)
+
+			admissionResponse := hook.Validate(&testCase.admissionRequest)
+
+			assert.True(t, admissionResponse.Allowed)
+			imageBackend.AssertNotCalled(t, "Get", mock.Anything, mock.Anything)
+			imageBackend.AssertNotCalled(t, "DoesPolicyCheckPass", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			imageBackend.AssertNotCalled(t, "Analyze", mock.Anything, mock.Anything)
+		})
+	}
+}
+
 func newPod(t *testing.T, images ...string) v1.Pod {
 	t.Helper()
 

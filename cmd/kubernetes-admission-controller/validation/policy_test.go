@@ -98,3 +98,42 @@ func TestPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestPolicy_EmptyPolicyBundleID(t *testing.T) {
+	// An empty PolicyBundleId means "evaluate against the account's default
+	// bundle": policy() must pass the empty ID through to the backend unchanged,
+	// so the API backend can omit the policy-ID parameter from the evaluation
+	// request (see APIImageBackend.DoesPolicyCheckPass). It must not error or
+	// deny just because no explicit bundle is configured.
+	testCases := []struct {
+		name                string
+		doesPolicyCheckPass bool
+	}{
+		{
+			name:                "passes policy check against default bundle",
+			doesPolicyCheckPass: true,
+		},
+		{
+			name:                "fails policy check against default bundle",
+			doesPolicyCheckPass: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			backend := new(anchore.MockImageBackend)
+			image := anchore.Image{
+				Digest:         testImageDigest,
+				AnalysisStatus: anchore.ImageStatusAnalyzed,
+			}
+			backend.On("Get", mock.Anything, testImageReference).Return(image, nil)
+			backend.On("DoesPolicyCheckPass", mock.Anything, testImageDigest, testImageReference,
+				"").Return(testCase.doesPolicyCheckPass, nil)
+
+			actual := policy(backend, anchore.Credential{}, testImageReference, "")
+
+			assert.Equal(t, testCase.doesPolicyCheckPass, actual.IsValid)
+			backend.AssertCalled(t, "DoesPolicyCheckPass", mock.Anything, testImageDigest, testImageReference, "")
+		})
+	}
+}
